@@ -94,14 +94,22 @@ def real_cost_section(rows, pricing):
         a = agg(grp, pricing)
         mtok = (a["tok"] or 0) / 1e6
         if plan.get("usd_per_month"):
-            pc = plan_cost(grp, plan)
-            if not pc:
+            # Everyone pays their own plan — pro-rate per person, then add up.
+            owners = defaultdict(list)
+            for r in grp:
+                owners[r.get("_owner") or "me"].append(r)
+            parts = [plan_cost(rs, plan) for rs in owners.values()]
+            parts = [p for p in parts if p]
+            if not parts:
                 continue
-            cost, first, last, n = pc
+            cost = sum(p[0] for p in parts)
+            first, last = min(p[1] for p in parts), max(p[2] for p in parts)
+            n = sum(p[3] for p in parts)
+            who = f" · {len(parts)} คน" if len(parts) > 1 else ""
             per_m = f"${cost/mtok:.4f}" if mtok else "—"
             row = (f"| **{ag}** | {plan.get('name') or 'แพ็กเหมา'} ${plan['usd_per_month']:g}/เดือน "
                    + (f"÷ {plan['days_per_month']:g} วัน × ใช้ {n} วัน" if plan.get("days_per_month") else f"× {n} วันปฏิทิน")
-                   + f" ({first:%d/%m}–{last:%d/%m}) | **${cost:.2f}** "
+                   + f"{who} ({first:%d/%m}–{last:%d/%m}) | **${cost:.2f}** "
                    f"| ${cost/a['turns']:.3f} | {per_m} |")
             if a["has_usd"] and cost:
                 row += f" ${a['usd']:.2f} · คุ้มกว่า API {a['usd']/cost:.0f}× |"
@@ -130,7 +138,7 @@ def ledger_files(args):
 
     Default: this machine's own ledger. With --ledger you can point at a pile of
     files collected from other people — owner comes from the filename
-    (`ledger-preaw.jsonl` → preaw), so nobody has to edit anyone's data to merge it.
+    (`ledger-somchai.jsonl` → somchai), so nobody has to edit anyone's data to merge it.
     """
     if not args.ledger:
         return [(LEDGER, "me")]
