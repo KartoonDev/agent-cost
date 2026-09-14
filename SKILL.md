@@ -12,13 +12,16 @@ description: Track and compare what CodeBuddy vs Claude Code actually cost per t
 
 | | CodeBuddy CLI (`cbc`) | CodeBuddy IDE | Claude Code |
 |---|---|---|---|
-| transcript บนดิสก์ | `~/.codebuddy/projects/**/*.jsonl` | ❌ | `~/.claude/projects/**/*.jsonl` |
-| **credit** | ✅ `providerData.rawUsage.credit` | ❌ | ❌ ไม่มี field นี้ |
-| token / เวลา / tool | ✅ | ❌ | ✅ |
-| `Stop` hook | ✅ | ❌ | ✅ |
+| ข้อมูลบนดิสก์ | `~/.codebuddy/projects/*/*.jsonl` | `CodeBuddyExtension/Data/*/CodeBuddyIDE/*/history/**/index.json` | `~/.claude/projects/*/*.jsonl` |
+| **credit** | ✅ `providerData.rawUsage.credit` | ✅ `requests[].usage.credit` | ❌ ไม่มี field นี้ |
+| token / เวลา / tool / prompt | ✅ | ✅ | ✅ |
+| เก็บยังไง | `Stop` hook | `ide_sync.py` (dashboard เรียกให้เอง) | `Stop` hook |
+| ย้อนหลังก่อนติดตั้ง | `backfill.py` | `backfill.py` | `backfill.py` |
 
-⚠️ **IDE เก็บอัตโนมัติไม่ได้** — `codebuddy-sessions.vscdb` มีแค่ metadata (title/status/เวลา) ตัวเลข
-Credits/Tokens/Elapsed ที่ UI โชว์มาจาก API ไม่ได้ลงดิสก์ → ต้องกรอกมือ (ดูหัวข้อล่างสุด)
+**CodeBuddy IDE ไม่ยิง hook** แต่เก็บ usage ต่อ request ไว้ใน history ของ extension
+(`~/Library/Application Support` บน macOS, `%APPDATA%` บน Windows, `~/.config` บน Linux — ชี้เองได้ด้วย `$CODEBUDDY_APPDATA`)
+`ide_sync.py` อ่านแล้วลง ledger เป็น `agent: "codebuddy"` + `source: "ide"` — รวมยอดกับ CLI ได้เลย
+ถ้าต้องแยกให้กรอง `source`
 
 ⚠️ **Claude ไม่มี credit** — เทียบเป็นเงินได้ต่อเมื่อเติม `pricing.json` เอง ถ้าไม่เติม report จะโชว์ `—`
 ไม่เดาราคาให้ ตัวเลขที่มั่วมาแพงกว่าช่องว่าง
@@ -68,6 +71,21 @@ python3 ~/.claude/skills/agent-cost/scripts/dashboard.py --open          # http:
 
 bind แค่ 127.0.0.1 และตอบเฉพาะ Host ที่เป็น localhost — ledger มี prompt กับ path ไฟล์ ไม่ควรเปิดออกนอกเครื่อง
 ราคา credit / ค่าแพ็กที่พิมพ์ในหน้าเก็บใน browser ถ้าไม่พิมพ์จะใช้ `_plans` จาก `pricing.json`
+ทุกครั้งที่หน้าเว็บ poll จะดึงรอบใหม่จาก CodeBuddy IDE ให้ด้วย (≤ ทุก 3 วิ) ไม่ต้องรัน `ide_sync.py` แยก
+
+**ย้อนเก็บของเก่า (ก่อนติดตั้ง hook):** อ่าน transcript ของ Claude Code + CodeBuddy CLI และ history ของ CodeBuddy IDE
+ที่อยู่ในเครื่องคนรัน — ใครลง skill แล้วรันคำสั่งเดียวกันก็ได้ของตัวเอง
+
+```bash
+python3 ~/.claude/skills/agent-cost/scripts/backfill.py --dry-run         # ดูก่อนว่าจะเพิ่มกี่รอบ
+python3 ~/.claude/skills/agent-cost/scripts/backfill.py                   # เขียนจริง
+python3 ~/.claude/skills/agent-cost/scripts/backfill.py --since 2026-08-01 --only claude   # claude | codebuddy | ide
+```
+
+ใช้ `build_record` ของ `capture.py` ตรง ๆ → `turn_key` กับนิยาม token เหมือนที่ hook เขียนเป๊ะ
+รอบที่ hook จดไปแล้วข้าม รันซ้ำกี่ครั้งก็ไม่เพิ่ม · ข้ามรอบสุดท้ายของ transcript ที่เพิ่งถูกเขียนใน 10 นาที
+(อาจยังทำงานอยู่ ให้ hook จดตอนจบ) · token ของ subagent รวมเข้ารอบแม่ให้เหมือน hook
+`via` ดูจากประวัติไม่ได้ → รัน `capture.py --rebuild` ต่อ ถ้าอยากรู้ว่ารอบไหน Claude เป็นคนสั่ง CLI
 
 `--ledger` รับ glob ของ ledger คนอื่นที่ขอมา ชื่อคนอ่านจากชื่อไฟล์ `ledger-<ชื่อ>.jsonl`
 ไฟล์ซ้ำไม่นับซ้ำ (dedupe ด้วย `turn_key`) · `--owner <ชื่อ>` เจาะรายคน
@@ -143,8 +161,10 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
   (event ละ content block: thinking / text / tool_use) ถ้าบวกดื้อ ๆ token จะเกินจริง ~2-3 เท่า
   เคยเจอ 151 events → 67 ข้อความจริง
 - **`turn_key`** = sha1(agent+session+turn index) กัน hook ยิงซ้ำแล้วนับซ้ำ
-- **elapsed** = timestamp สุดท้าย − แรกของรอบนั้น รวมเวลาที่รอ tool ด้วย → ไม่เท่ากับเวลา inference ล้วน
-  นับเฉพาะ event ที่เป็นงาน (ข้อความ / tool call / tool result) — `queue-operation` `attachment` โผล่ทีหลังได้เป็นวัน
+- **elapsed** = ผลรวมช่วงห่างระหว่าง event ที่เป็นงาน (ข้อความ / tool call / tool result) รวมเวลาที่รอ tool ด้วย
+  → ไม่เท่ากับเวลา inference ล้วน · ช่วงเงียบเกิน 30 นาที (`IDLE_GAP_SEC`) ไม่นับ — `queue-operation` `attachment`
+  โผล่ทีหลังได้เป็นวัน และ session ที่เปิดค้างแล้วมี notification / ตอบต่อวันถัดไป เคยทำให้รอบเดียวยาว 300 ชม.
+- **`model`** = model ล่าสุดของรอบที่ไม่ใช่ `<synthetic>` (ข้อความ error/แจ้งเตือนที่ harness เขียนเอง ไม่ได้ทำงานจริง)
 - **ledger เก่าหรือ capture รุ่นก่อน** → `python3 scripts/capture.py --rebuild` คำนวณทุกแถวใหม่จาก transcript
   (backup เป็น `ledger.jsonl.bak-*` ก่อนเสมอ) แถวที่เป็นชิ้นของรอบเดียวกันจะรวมเป็นแถวเดียว
   แถวที่ transcript หายไปแล้ว / กรอกมือ → แก้แค่นิยาม token ด้วยการคำนวณ
@@ -152,9 +172,22 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
   SKILL.md มาทั้งก้อน เอามาเป็น label ไม่ได้
 - รอบที่ไม่มี output token และไม่มี credit → ข้าม ไม่เขียนลง ledger
 
-## กรอก session จาก IDE เอง
+## CodeBuddy IDE — อ่านตัวเลขยังไง
 
-IDE ดึงอัตโนมัติไม่ได้ ถ้าอยากให้อยู่ในรายงานเดียวกัน ให้ต่อท้าย `ledger.jsonl` เอง — ก็อปเลขจากใต้คำตอบใน UI:
+- **1 request ใน history = 1 รอบ** (prompt + ทุก tool call ที่ agent ทำต่อจากนั้น) หน่วยเดียวกับ hook
+  request ที่ `state` ยังไม่ `complete` ข้ามไว้ รอบหน้าค่อยเก็บ · request ที่กดยกเลิกกลางทางยังนับ (credit ถูกหักจริง)
+- `inputTokens` ของ IDE รวม cache hit/write มาแล้ว (เหมือน `prompt_tokens` ของ CLI) → หักออกให้เหลือ input ล้วน
+  `total_tokens` จึงนิยามเดียวกับแถวอื่น (`usage_v: 2`)
+- `turn_key` = sha1(`codebuddy:ide:<request id>`) · `session_id` = conversation id
+- `repo` — โฟลเดอร์ใน history คือ md5 ของ path workspace ยืนยันด้วยการ hash path ที่เจอใน
+  `workspaceStorage` / ข้อความ ถ้าหาไม่เจอใช้ชื่อจากชื่อไฟล์ log ของ extension ไม่งั้นเป็น `?`
+- `elapsed_sec` = ข้อความสุดท้ายของ request − `startedAt`
+- จำ mtime ของ `index.json` ไว้ใน `<LEDGER_DIR>/.ide_sync.json` — ไฟล์ไม่เปลี่ยนไม่อ่านซ้ำ
+  ลบไฟล์นี้ได้ถ้าอยากให้สแกนใหม่หมด (ไม่นับซ้ำเพราะ dedupe ด้วย `turn_key`)
+
+## กรอก session เอง (ไม่มีข้อมูลบนดิสก์)
+
+ถ้าเจอ agent ที่ไม่มีข้อมูลบนดิสก์ให้อ่าน แต่อยากให้อยู่ในรายงานเดียวกัน ให้ต่อท้าย `ledger.jsonl` เอง — ก็อปเลขจาก UI:
 
 ```bash
 python3 - <<'PY'
@@ -176,7 +209,7 @@ open(p, "a").write(json.dumps(rec, ensure_ascii=False) + "\n")
 PY
 ```
 
-แยก `agent` เป็น `codebuddy-ide` ไว้ จะได้ไม่ปนกับตัวเลข CLI ที่วัดเองอัตโนมัติ — คนละวิธีเก็บ
+แยก `agent` เป็นชื่ออื่น (เช่น `codebuddy-ide`) ไว้ จะได้ไม่ปนกับตัวเลขที่วัดเองอัตโนมัติ — คนละวิธีเก็บ
 ความน่าเชื่อถือคนละระดับ อย่าเอาไปรวมยอดเดียวกันโดยไม่บอก
 
 ## ตอนทำ report เทียบ agent

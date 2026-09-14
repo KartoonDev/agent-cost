@@ -84,7 +84,7 @@ python3 ~/.claude/skills/agent-cost/scripts/dashboard.py --open
 ```
 
 เปิด http://127.0.0.1:8791 ทิ้งไว้ได้เลย ทำงานกับ agent เสร็จแต่ละรอบ ตัวเลขขึ้นเองภายในไม่กี่วินาที
-(port ชนก็ `--port 9000`)
+(port ชนก็ `--port 9000`) · ใช้ CodeBuddy แบบแอป IDE ก็ขึ้นเอง dashboard ดึงให้ระหว่างเปิดอยู่
 
 - เทียบ **เงินรวม** ในช่วงวันที่เลือก + ต่อรอบ / ต่อ output token / ต่อ token
 - แยกว่า CodeBuddy รอบไหน **เราพิมพ์สั่งเอง** กับรอบไหน **Claude ส่งงานไปให้**
@@ -104,6 +104,21 @@ python3 $R --month 2026-09 --write    # เขียน 2026-09.md ลงข้�
 ```
 
 หรือถาม agent ตรง ๆ ว่า "เดือนนี้ใช้ credit ไปเท่าไหร่" — skill จะพาไปเอง
+
+ใช้แอป CodeBuddy IDE แต่ไม่ได้เปิด dashboard → ก่อนดู report สั่ง `python3 ~/.claude/skills/agent-cost/scripts/ide_sync.py`
+
+### ย้อนเก็บของเก่า
+
+hook จดเฉพาะรอบที่จบ **หลัง** ติดตั้ง ของก่อนหน้านั้นยังอยู่ในเครื่อง ดึงเข้า ledger ได้ด้วยคำสั่งเดียว
+(อ่าน Claude Code, CodeBuddy CLI และ CodeBuddy IDE ของเครื่องคนที่รัน — ใครรันก็ได้ของตัวเอง)
+
+```bash
+python3 ~/.claude/skills/agent-cost/scripts/backfill.py --dry-run   # ดูก่อนว่าจะได้กี่รอบ
+python3 ~/.claude/skills/agent-cost/scripts/backfill.py             # เขียนจริง
+python3 ~/.claude/skills/agent-cost/scripts/capture.py --rebuild    # (ถ้าอยากได้ via: claude ของรอบเก่า)
+```
+
+รันซ้ำได้ ไม่นับซ้ำกับที่ hook จดไว้แล้ว · `--since 2026-08-01` เอาเฉพาะช่วง · `--only claude|codebuddy|ide`
 
 ---
 
@@ -147,12 +162,14 @@ python3 $R --ledger 'team/ledger-*.jsonl' --month 2026-09 --write    # เขี
 
 | | CodeBuddy CLI (`cbc`) | CodeBuddy IDE | Claude Code |
 |---|---|---|---|
-| credit | ✅ ของจริงจาก transcript | ❌ ต้องกรอกมือ | ❌ ไม่มี (ใช้ `pricing.json`) |
-| token / เวลา / tool | ✅ | ❌ | ✅ |
+| credit | ✅ ของจริงจาก transcript | ✅ ของจริงจาก history ของ IDE | ❌ ไม่มี (ใช้ `pricing.json`) |
+| token / เวลา / tool / prompt | ✅ | ✅ | ✅ |
+| เก็บด้วย | Stop hook | dashboard / `ide_sync.py` | Stop hook |
+| ของก่อนติดตั้ง | `backfill.py` | `backfill.py` | `backfill.py` |
 | subagent (Agent tool) | — | — | ✅ รวมเข้ารอบที่เรียก |
 | ถูก Claude เรียกแบบ headless | ✅ ติด `via: claude` | — | ✅ ติด `via: claude` |
 
-- **IDE เก็บอัตโนมัติไม่ได้** เลขที่ UI โชว์มาจาก API ไม่ได้ลงดิสก์ → กรอกเองได้ (ดู SKILL.md หัวข้อสุดท้าย)
+- **CodeBuddy IDE ไม่มี hook** แต่เก็บ usage ต่อรอบไว้ในเครื่อง → ลงเป็น `codebuddy` เหมือน CLI (มี `source: "ide"` ไว้แยก)
 - **Claude Code ที่ชี้ไป model อื่น** (เช่น gateway ของ qwen) จะขึ้นเป็น `claude-code:qwen` ไม่ปนยอด Claude
 - 1 แถว = 1 รอบที่คนสั่ง (ไม่ใช่ 1 API call) — `/model`, `/clear` ระหว่างทางไม่ตัดรอบ
 

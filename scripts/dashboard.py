@@ -11,17 +11,35 @@ Local only on purpose: the ledger holds prompts and file paths. The server binds
 127.0.0.1 and refuses any Host header that isn't localhost, so a web page can't
 reach it through DNS rebinding.
 """
-import argparse, json, os, sys, webbrowser
+import argparse, json, os, sys, threading, time, webbrowser
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cost_paths import ledger_dir
+import ide_sync
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(HERE, "dashboard.html")
 KEEP = ("turn_key", "agent", "session_id", "ts", "repo", "credit", "input_tokens", "output_tokens",
         "cache_read_tokens", "cache_write_tokens", "elapsed_sec", "model", "n_tool_calls",
         "via", "n_subagents", "subagent_tokens")
+
+
+_ide = {"at": 0.0, "lock": threading.Lock()}
+
+
+def sync_ide():
+    """CodeBuddy IDE has no Stop hook — fold its on-disk history in, at most every 3 s."""
+    if not _ide["lock"].acquire(blocking=False):
+        return
+    try:
+        if time.time() - _ide["at"] >= 3:
+            _ide["at"] = time.time()
+            ide_sync.sync()
+    except Exception as e:
+        print("ide sync failed:", e, file=sys.stderr, flush=True)
+    finally:
+        _ide["lock"].release()
 
 
 def paths():
@@ -93,6 +111,7 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 return self._send(500, b"dashboard.html missing")
         if path == "/api/ledger":
+            sync_ide()
             tag = etag()
             if self.headers.get("If-None-Match") == tag:
                 return self._send(304, headers={"ETag": tag})
