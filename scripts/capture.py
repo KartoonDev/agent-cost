@@ -36,6 +36,7 @@ LEDGER = os.path.join(LEDGER_DIR, "ledger.jsonl")
 RECORD_PROMPTS = record_prompts(CFG)
 DEBUG = os.environ.get("AGENT_COST_DEBUG") == "1"
 USAGE_V = 2
+IDLE_GAP_SEC = 1800  # a silence longer than this inside a turn is waiting, not working
 WORK_EVENTS = {"user", "assistant", "message", "reasoning", "function_call", "function_call_result"}
 
 
@@ -279,7 +280,11 @@ def collect(turn):
                     if p:
                         files.append(p)
 
-    elapsed = round(max(stamps) - min(stamps), 1) if len(stamps) >= 2 else None
+    # Sum the gaps between work events, skipping idle ones: a turn left open can pick up
+    # a notification or a resumed reply days later, and last − first counted all of it.
+    stamps.sort()
+    gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+    elapsed = round(sum(g for g in gaps if g <= IDLE_GAP_SEC), 1) if gaps else None
     return {
         "credit": round(credit, 4) if have_credit else None,
         "tokens": tok,
