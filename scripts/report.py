@@ -52,6 +52,70 @@ def usd(rec, pricing):
     )
 
 
+def plan_of(pricing, agent):
+    """`_plans` in pricing.json: {"claude": {"name": "Max 5x", "usd_per_month": 100}}.
+
+    A flat plan means per-token prices say nothing about what you actually paid.
+    The honest number is the plan fee spread over the days the ledger covers.
+    """
+    return (pricing.get("_plans") or {}).get(agent) or {}
+
+
+def plan_cost(rows, plan):
+    """(usd, first_day, last_day, n_days) — plan fee pro-rated over the covered calendar days."""
+    days = sorted({(r.get("ts") or "")[:10] for r in rows if r.get("ts")})
+    if not days or not plan.get("usd_per_month"):
+        return None
+    first = datetime.date.fromisoformat(days[0])
+    last = datetime.date.fromisoformat(days[-1])
+    usd_total, d = 0.0, first
+    while d <= last:
+        nxt = (d.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+        usd_total += plan["usd_per_month"] / (nxt - d.replace(day=1)).days
+        d += datetime.timedelta(days=1)
+    return usd_total, first, last, (last - first).days + 1
+
+
+def real_cost_section(rows, pricing):
+    """What each agent really cost: plan fee pro-rated, or credits (× price if known)."""
+    by = defaultdict(list)
+    for r in rows:
+        by[r.get("agent", "?")].append(r)
+    lines = []
+    for ag in sorted(by):
+        grp, plan = by[ag], plan_of(pricing, ag)
+        a = agg(grp, pricing)
+        mtok = (a["tok"] or 0) / 1e6
+        if plan.get("usd_per_month"):
+            pc = plan_cost(grp, plan)
+            if not pc:
+                continue
+            cost, first, last, n = pc
+            per_m = f"${cost/mtok:.4f}" if mtok else "—"
+            row = (f"| **{ag}** | {plan.get('name') or 'แพ็กเหมา'} ${plan['usd_per_month']:g}/เดือน "
+                   f"× {n} วัน ({first:%d/%m}–{last:%d/%m}) | **${cost:.2f}** "
+                   f"| ${cost/a['turns']:.3f} | {per_m} |")
+            if a["has_usd"] and cost:
+                row += f" ${a['usd']:.2f} · คุ้มกว่า API {a['usd']/cost:.0f}× |"
+            else:
+                row += " — |"
+            lines.append(row)
+        elif a["has_credit"]:
+            ucr = plan.get("usd_per_credit")
+            cost = f"**${a['credit']*ucr:.2f}** ({a['credit']:.2f} credit)" if ucr else f"**{a['credit']:.2f} credit**"
+            per_turn = f"${a['credit']*ucr/a['turns']:.3f}" if ucr else f"{a['credit']/a['turns']:.2f} cr"
+            per_m = (f"${a['credit']*ucr/mtok:.4f}" if ucr else f"{a['credit']/mtok:.2f} cr") if mtok else "—"
+            lines.append(f"| **{ag}** | ตาม credit ที่ใช้{'' if ucr else ' (ยังไม่รู้ราคา credit)'} "
+                         f"| {cost} | {per_turn} | {per_m} | — |")
+    if not lines:
+        return []
+    return ["## จ่ายจริงเท่าไหร่", "",
+            "| Agent | คิดเงินแบบ | ช่วงนี้จ่าย | ต่อรอบ | ต่อ 1M token | ถ้าจ่ายราคา API |",
+            "|---|---|--:|--:|--:|---|", *lines, "",
+            "> แพ็กเหมาเฉลี่ยตามวันที่ ledger มีข้อมูล (นับวันที่ไม่ได้ใช้ตรงกลางด้วย เพราะจ่ายอยู่ดี) "
+            "· ใส่ราคา credit ได้ที่ `_plans.codebuddy.usd_per_credit` ใน `pricing.json`", ""]
+
+
 def ledger_files(args):
     """(path, owner) pairs to read.
 
@@ -145,7 +209,7 @@ def summary_table(rows, pricing):
     by = defaultdict(list)
     for r in rows:
         by[r.get("agent", "?")].append(r)
-    out = ["| Agent | รอบ | Credit | Token รวม | Output tok | เวลารวม | เฉลี่ย/รอบ | Tool calls | USD (ประมาณ) |",
+    out = ["| Agent | รอบ | Credit | Token รวม | Output tok | เวลารวม | เฉลี่ย/รอบ | Tool calls | USD ราคา API |",
            "|---|--:|--:|--:|--:|--:|--:|--:|--:|"]
     for ag in sorted(by):
         a = agg(by[ag], pricing)
@@ -211,6 +275,7 @@ def main():
     if not pricing:
         md += ["> USD เป็น `—` เพราะยังไม่ได้ตั้งราคา — เติม `pricing.json` "
                "(`{\"claude-opus-5\": {\"input\": 0, \"output\": 0, \"cache_read\": 0}}` USD ต่อ 1M token) แล้วรันใหม่", ""]
+    md += real_cost_section(rows, pricing)
 
     if args.compare:
         by = defaultdict(lambda: defaultdict(list))

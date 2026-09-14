@@ -23,12 +23,21 @@ Credits/Tokens/Elapsed ที่ UI โชว์มาจาก API ไม่ไ
 ⚠️ **Claude ไม่มี credit** — เทียบเป็นเงินได้ต่อเมื่อเติม `pricing.json` เอง ถ้าไม่เติม report จะโชว์ `—`
 ไม่เดาราคาให้ ตัวเลขที่มั่วมาแพงกว่าช่องว่าง
 
+**ใช้แพ็กเหมา (Pro / Max)** → ราคา API ไม่ใช่เงินที่จ่ายจริง ใส่ `_plans` แล้ว report จะเพิ่มหัวข้อ "จ่ายจริงเท่าไหร่"
+ที่เฉลี่ยค่าแพ็กตามวันที่ ledger มีข้อมูล (ราคา API เหลือไว้ดูว่าคุ้มกว่ากี่เท่า):
+
+```json
+{"_plans": {"claude": {"name": "Max 5x", "usd_per_month": 100},
+            "codebuddy": {"usd_per_credit": 0.01}},
+ "claude-opus-5": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write": 6.25}}
+```
+
 ## โครงสร้าง
 
 ```
 <LEDGER_DIR>/                    ← เจ้าของเครื่องเลือกเองตอนติดตั้ง (ดีฟอลต์ ~/.agent-cost)
 ├── ledger.jsonl     ← ข้อมูลดิบ append-only (hook เขียน) = source of truth
-├── pricing.json     ← ราคา USD ต่อ 1M token ต่อ model (ออปชัน กรอกเอง)
+├── pricing.json     ← ราคา USD ต่อ 1M token ต่อ model + `_plans` แพ็กเหมา (ออปชัน กรอกเอง)
 └── 2026-09.md       ← report ที่ render จาก ledger (สร้างใหม่ได้เสมอ)
 ```
 
