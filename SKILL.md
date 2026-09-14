@@ -109,7 +109,8 @@ tar -czf agent-cost.tar.gz -C ~/.claude/skills agent-cost      # แล้วส
 ```
 
 ฝั่งคนรับ: แตกลง `~/.claude/skills/` แล้วรัน `install.py` — ไม่มี path ผูกกับเครื่องใครใน repo นี้
-ledger เป็นของเครื่องใครเครื่องมัน **อย่าเอา ledger ไป commit รวมกัน** — ในนั้นมี prompt กับ path ไฟล์ของเจ้าตัว
+ledger เป็นของเครื่องใครเครื่องมัน **อย่า commit ledger / backup / report `.md` ขึ้น git** — ในนั้นมี prompt กับ path ไฟล์ของเจ้าตัว
+ถ้าเลือก `LEDGER_DIR` อยู่ใน git repo (เช่น wiki) ให้ใส่ `.gitignore` ก่อน: `*.jsonl` `*.jsonl.*` `*.md` `pricing.json` ของโฟลเดอร์นั้น
 
 เทสโดยไม่ต้องรอรอบจริง:
 
