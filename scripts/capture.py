@@ -244,7 +244,9 @@ def collect(turn):
             tok["output"] += u.get("output_tokens") or u.get("completion_tokens") or 0
             tok["cache_read"] += cr
             tok["cache_write"] += cw
-        model = msg.get("model") or pd.get("model") or model
+        m = msg.get("model") or pd.get("model")
+        if m and m != "<synthetic>":   # Claude writes "<synthetic>" for harness-made messages
+            model = m
 
         # tool calls: CodeBuddy = function_call events; Claude = tool_use content blocks
         if ev.get("type") == "function_call":
@@ -289,7 +291,78 @@ def collect(turn):
 
 
 def agent_of(tpath):
+    """Which harness wrote the transcript (stable — used in turn_key)."""
     return "codebuddy" if "/.codebuddy/" in tpath else "claude"
+
+
+def agent_label(tpath, model):
+    """Claude Code pointed at another provider (e.g. a qwen gateway) is not Claude spend.
+
+    Keep it out of the `claude` bucket so plan cost and per-token numbers stay honest.
+    """
+    base = agent_of(tpath)
+    if base == "claude" and model and not model.startswith("claude"):
+        family = re.match(r"[a-zA-Z]+", model)
+        return f"claude-code:{family.group(0).lower() if family else model}"
+    return base
+
+
+def collect_subagents(tpath, t0, t1):
+    """Usage from Claude subagent transcripts that ran inside [t0, t1).
+
+    Subagents (Agent tool, workflows) write <session>/subagents/*.jsonl and never fire
+    Stop, so without this their tokens vanish from the ledger. We credit them to the
+    turn whose window their messages fall in.
+    """
+    out = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "n": 0, "models": set()}
+    folder = os.path.join(tpath[:-len(".jsonl")] if tpath.endswith(".jsonl") else tpath, "subagents")
+    if not os.path.isdir(folder):
+        return out
+    for name in sorted(os.listdir(folder)):
+        if not name.endswith(".jsonl"):
+            continue
+        path = os.path.join(folder, name)
+        try:
+            if t0 and os.path.getmtime(path) < t0:
+                continue
+        except OSError:
+            continue
+        seen, used = set(), False
+        for ev in load_events(path):
+            msg = ev.get("message") if isinstance(ev.get("message"), dict) else {}
+            u = msg.get("usage")
+            if not u:
+                continue
+            ts = ts_to_epoch(ev.get("timestamp"))
+            if ts is None or (t0 and ts < t0) or (t1 and ts >= t1):
+                continue
+            key = msg.get("id") or ev.get("uuid")
+            if key in seen:
+                continue
+            seen.add(key)
+            used = True
+            out["input"] += u.get("input_tokens") or 0
+            out["output"] += u.get("output_tokens") or 0
+            out["cache_read"] += u.get("cache_read_input_tokens") or 0
+            out["cache_write"] += u.get("cache_creation_input_tokens") or 0
+            if msg.get("model") and msg["model"] != "<synthetic>":
+                out["models"].add(msg["model"])
+        if used:
+            out["n"] += 1
+    return out
+
+
+def via_from_env(agent, session_id):
+    """(via, parent_session) when this turn ran as a child of a Claude Code session.
+
+    Claude Code exports CLAUDE_CODE_SESSION_ID to everything it spawns, so a CodeBuddy
+    or `claude -p` started from Claude's Bash tool inherits the parent's id. A normal
+    Claude session sees its own id, which is not a parent.
+    """
+    parent = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if parent and parent != session_id:
+        return "claude", parent
+    return None, None
 
 
 def make_key(agent, session_id, idx):
@@ -300,13 +373,19 @@ def build_record(events, prompts, start, tpath, session_id, cwd, ts):
     s, e = turn_bounds(events, prompts, start)
     turn = events[s:e]
     facts = collect(turn)
-    if facts["credit"] is None and facts["tokens"]["output"] == 0:
+    t = dict(facts["tokens"])
+    sub = {"n": 0, "models": set(), "input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
+    if agent_of(tpath) == "claude":
+        t0 = ts_to_epoch(turn[0].get("timestamp")) if turn else None
+        t1 = ts_to_epoch(events[e].get("timestamp")) if e < len(events) else None
+        sub = collect_subagents(tpath, t0, t1)
+        for k in ("input", "output", "cache_read", "cache_write"):
+            t[k] += sub[k]
+    if facts["credit"] is None and t["output"] == 0:
         return None
-    agent = agent_of(tpath)
-    t = facts["tokens"]
     return {
-        "turn_key": make_key(agent, session_id, s),
-        "agent": agent,
+        "turn_key": make_key(agent_of(tpath), session_id, s),
+        "agent": agent_label(tpath, facts["model"]),
         "session_id": session_id,
         "ts": ts,
         "cwd": cwd,
@@ -321,6 +400,11 @@ def build_record(events, prompts, start, tpath, session_id, cwd, ts):
         "usage_v": USAGE_V,
         "elapsed_sec": facts["elapsed_sec"],
         "model": facts["model"],
+        "n_subagents": sub["n"],
+        "subagent_tokens": sub["input"] + sub["output"] + sub["cache_read"] + sub["cache_write"],
+        "subagent_models": sorted(sub["models"]),
+        "via": None,
+        "parent_session": None,
         "n_tool_calls": len(facts["tools"]),
         "tools": sorted(set(facts["tools"])),
         "files_touched": facts["files"][:40],
@@ -360,6 +444,7 @@ def main():
     if rec is None:
         log("turn had no usage — skipped")
         return
+    rec["via"], rec["parent_session"] = via_from_env(rec["agent"], session_id)
 
     os.makedirs(LEDGER_DIR, exist_ok=True)
     # Cheap dedupe: turn keys only repeat within the same session, so the tail is enough.
@@ -391,6 +476,64 @@ def normalize_without_transcript(r):
     return r
 
 
+_DELEGATE_CMD = re.compile(r"cb\.sh|\bcodebuddy\b|\bcbc\b|claude-9arm|\bclaude\s+(-p|--print)\b")
+
+
+def _norm(text):
+    return " ".join(re.sub(r"[\\'\"`]", "", text or "").lower().split())
+
+
+def delegation_index(since_epoch):
+    """[(normalized command, claude session id)] for every CLI delegation Claude ran.
+
+    Rebuild can't see the env a past hook ran with, so it recovers `via` by finding
+    the child's prompt inside a Bash command from a Claude transcript (main or subagent).
+    """
+    root = os.path.expanduser("~/.claude/projects")
+    found = []
+    for dirpath, _, names in os.walk(root):
+        for name in names:
+            if not name.endswith(".jsonl"):
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                if os.path.getmtime(path) < since_epoch:
+                    continue
+            except OSError:
+                continue
+            if os.path.basename(dirpath) == "subagents":
+                sid = os.path.basename(os.path.dirname(dirpath))
+            else:
+                sid = name[:-len(".jsonl")]
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        if '"tool_use"' not in line or not _DELEGATE_CMD.search(line):
+                            continue
+                        try:
+                            ev = json.loads(line)
+                        except Exception:
+                            continue
+                        for blk in ((ev.get("message") or {}).get("content") or []):
+                            if isinstance(blk, dict) and blk.get("type") == "tool_use":
+                                cmd = (blk.get("input") or {}).get("command") or ""
+                                if _DELEGATE_CMD.search(cmd):
+                                    found.append((_norm(cmd), sid))
+            except OSError:
+                continue
+    return found
+
+
+def via_from_index(rec, index):
+    needle = _norm(rec.get("prompt"))[:60]
+    if len(needle) < 15:
+        return None, None
+    for cmd, sid in index:
+        if sid != rec.get("session_id") and needle in cmd:
+            return "claude", sid
+    return None, None
+
+
 def rebuild():
     """Re-derive every row from its transcript with the current turn rules.
 
@@ -403,8 +546,10 @@ def rebuild():
         print("no ledger at", LEDGER)
         return 1
     rows = [json.loads(l) for l in open(LEDGER, encoding="utf-8") if l.strip()]
+    stamps = [ts_to_epoch(r.get("ts")) for r in rows if r.get("ts")]
+    index = delegation_index((min(stamps) - 86400) if stamps else 0)
     cache, out, seen = {}, [], set()
-    stats = {"rebuilt": 0, "merged": 0, "kept": 0, "relabeled": 0}
+    stats = {"rebuilt": 0, "merged": 0, "kept": 0, "relabeled": 0, "via": 0, "subagent_turns": 0}
 
     for r in rows:
         tpath = r.get("transcript") or ""
@@ -416,7 +561,8 @@ def rebuild():
             ev = load_events(tpath)
             cache[tpath] = (ev, human_prompt_indices(ev))
         events, prompts = cache[tpath]
-        agent, sid = r.get("agent"), r.get("session_id")
+        sid = r.get("session_id")
+        agent = agent_of(tpath)
         old = next((i for i in range(len(events)) if make_key(agent, sid, i) == r.get("turn_key")), None)
         if old is None:
             out.append(normalize_without_transcript(r))
@@ -437,6 +583,13 @@ def rebuild():
         for k in ("owner",):
             if k in r:
                 new[k] = r[k]
+        # A hook-captured `via` came from the real env — trust it over the index guess.
+        if r.get("via"):
+            new["via"], new["parent_session"] = r["via"], r.get("parent_session")
+        else:
+            new["via"], new["parent_session"] = via_from_index(new, index)
+        stats["via"] += bool(new["via"])
+        stats["subagent_turns"] += bool(new["n_subagents"])
         out.append(new)
         stats["rebuilt"] += 1
 
@@ -448,7 +601,8 @@ def rebuild():
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     os.replace(tmp, LEDGER)
     print(f"{len(rows)} rows → {len(out)} · rebuilt {stats['rebuilt']} · merged {stats['merged']} "
-          f"· kept as-is {stats['kept']} · prompt changed {stats['relabeled']}")
+          f"· kept as-is {stats['kept']} · prompt changed {stats['relabeled']}\n"
+          f"delegated (via claude) {stats['via']} · turns with subagents {stats['subagent_turns']}")
     print("backup:", backup)
     return 0
 

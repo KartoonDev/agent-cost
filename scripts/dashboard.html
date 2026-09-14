@@ -100,6 +100,8 @@ code{font-family:var(--mono);font-size:12px;background:var(--sunk);padding:1px 5
 @media (prefers-reduced-motion:reduce){.pulse{animation:none}}
 .field select{font-family:var(--sans);font-size:14px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
 .field select:focus-visible{outline:2px solid var(--cb);outline-offset:2px}
+.split{margin:0;font-size:12px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:10px}
+.split b{font-family:var(--mono);font-weight:600;color:var(--ink)}
 tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
 </style>
 
@@ -212,18 +214,22 @@ const models = rs => [...new Set(rs.map(r=>r.model).filter(Boolean))].slice(0,3)
 
 function renderDuel(){
   const a=agg(CB), b=agg(CL), pc=planCost(CL), plan=(PRICING._plans||{}).claude||{};
-  const side=(name,color,s,big,tag)=>`<div class="side">
+  const side=(name,color,s,big,tag,extra)=>`<div class="side">
     <div class="side-h"><h2><i class="sw" style="background:${color}"></i>${name}</h2><span class="tag">${esc(tag)}</span></div>
     <div class="big">${big}</div>
     <dl class="kv">
       <div><dt>รอบ</dt><dd>${fmt(s.n)}</dd></div><div><dt>session</dt><dd>${fmt(s.sess)}</dd></div><div><dt>วันที่มีข้อมูล</dt><dd>${s.days.size}</dd></div>
       <div><dt>token</dt><dd>${fM(s.ctx+s.out)}</dd></div><div><dt>output token</dt><dd>${fM(s.out)}</dd></div><div><dt>tool calls</dt><dd>${fmt(s.tools)}</dd></div>
       <div><dt>เวลารวม</dt><dd>${fmt(s.sec/3600,1)} ชม.</dd></div><div><dt>เฉลี่ย / รอบ</dt><dd>${s.n?fmt(s.sec/s.n):"—"} s</dd></div><div><dt>token / รอบ</dt><dd>${s.n?fM((s.ctx+s.out)/s.n):"—"}</dd></div>
-    </dl></div>`;
+    </dl>${extra||""}</div>`;
   const cbBig = `${fmt(a.credit,2)}<small>credit</small>` + (creditUsd?`<small>≈ $${fmt(a.credit*creditUsd,2)}</small>`:"");
   const clBig = planUsd ? `$${fmt(pc.usd,2)}<small>${planBasis==="calendar"?"จ่ายจริง · "+pc.n+" วันปฏิทิน":"ใช้ "+pc.n+" วัน × $"+fmt(planUsd/Number(planBasis),2)}</small>` : (b.hasApi ? `$${fmt(b.api,2)}<small>ราคา API</small>` : `—<small>ใส่แพ็กหรือราคา API</small>`);
   const clTag = (planUsd ? `${plan.name||"แพ็ก"} $${fmt(planUsd,0)}/เดือน` : models(CL)) + (planUsd&&b.hasApi ? ` · มูลค่า API $${fmt(b.api,0)}` : "");
-  $("#duel").innerHTML = side("CodeBuddy","var(--cb)",a,cbBig,models(CB)) + side("Claude Code","var(--claude)",b,clBig,clTag);
+  const viaRows=CB.filter(r=>r.via==="claude"), viaCr=viaRows.reduce((t,r)=>t+(r.credit||0),0);
+  const cbExtra = `<p class="split">Claude สั่งให้ทำ <b>${fmt(viaRows.length)}</b> รอบ · ${fmt(viaCr,1)} credit (${a.credit?fmt(viaCr/a.credit*100,0):0}%) — ที่เหลือพิมพ์สั่งเอง</p>`;
+  const subRows=CL.filter(r=>r.n_subagents), subTok=CL.reduce((t,r)=>t+(r.subagent_tokens||0),0);
+  const clExtra = `<p class="split">subagent ${fmt(subRows.length)} รอบ · ${fM(subTok)} token (${(b.ctx+b.out)?fmt(subTok/(b.ctx+b.out)*100,0):0}% ของ token)</p>`;
+  $("#duel").innerHTML = side("CodeBuddy","var(--cb)",a,cbBig,models(CB),cbExtra) + side("Claude Code","var(--claude)",b,clBig,clTag,clExtra);
 }
 
 function claudeCost(){ const b=agg(CL); return planUsd ? planCost(CL).usd : (b.hasApi ? b.api : null); }
@@ -238,10 +244,12 @@ function renderVerdict(){
   if(clPerM==null || !a.n){
     cells.push(`<div class="vcell"><span class="lbl">จุดคุ้มทุน</span><span class="val">—</span><span class="note">ต้องมีข้อมูลทั้งสองฝั่ง และใส่แพ็ก Claude หรือราคา API ใน pricing.json</span></div>`);
   } else if(creditUsd){
-    const ratio=(cbPerM*creditUsd)/clPerM;
-    cells.push(`<div class="vcell"><span class="lbl">ต่อ 1M token ที่ ${fmt(creditUsd,4)} USD/credit</span><span class="val" style="color:${ratio<1?"var(--ok)":"var(--crit)"}">CodeBuddy ${ratio<1?"ถูกกว่า "+fmt(1/ratio,1)+"×":"แพงกว่า "+fmt(ratio,1)+"×"}</span><span class="note">$${fmt(cbPerM*creditUsd,3)} vs $${fmt(clPerM,4)} ต่อ 1M token</span></div>`);
+    // Headline = total money in range; per-token / per-output / per-turn stay in the note.
+    const cbTotal=a.credit*creditUsd, ratio=cbTotal/cl;
+    const word = Math.abs(ratio-1)<0.05 ? "พอ ๆ กับ Claude" : ratio<1 ? "ถูกกว่า "+fmt(1/ratio,1)+"×" : "แพงกว่า "+fmt(ratio,1)+"×";
+    cells.push(`<div class="vcell"><span class="lbl">จ่ายรวมช่วงนี้ ที่ ${fmt(creditUsd,4)} USD/credit</span><span class="val" style="color:${ratio<1?"var(--ok)":"var(--crit)"}">CodeBuddy ${word}</span><span class="note">รวม $${fmt(cbTotal,2)} vs $${fmt(cl,2)} · ต่อรอบ $${fmt(cbTotal/a.n,3)} vs $${fmt(cl/b.n,3)} · ต่อ 1M output $${fmt(cbTotal/(a.out/1e6),2)} vs $${fmt(cl/(b.out/1e6),2)} · ต่อ 1M token $${fmt(cbPerM*creditUsd,3)} vs $${fmt(clPerM,4)}</span></div>`);
   } else {
-    cells.push(`<div class="vcell"><span class="lbl">จุดคุ้มทุน (ต่อ 1M token)</span><span class="val">$${fmt(clPerM/cbPerM,5)} / credit</span><span class="note">1 credit ต้องถูกกว่านี้ CodeBuddy ถึงจะถูกกว่า Claude — ใส่ราคา credit ด้านบนเพื่อดูผล</span></div>`);
+    cells.push(`<div class="vcell"><span class="lbl">จุดคุ้มทุน (จ่ายรวมช่วงนี้)</span><span class="val">$${fmt(cl/a.credit,5)} / credit</span><span class="note">1 credit ต้องถูกกว่านี้ CodeBuddy ถึงจะจ่ายรวมน้อยกว่า Claude ($${fmt(cl,2)}) — ใส่ราคา credit ด้านบนเพื่อดูผล</span></div>`);
   }
   $("#verdict").innerHTML = cells.join("");
 }
@@ -298,14 +306,14 @@ function renderFindings(){
   $("#findings").innerHTML = F.map(([lv,t,p])=>`<div class="finding"><span class="pill ${lv}">${{warn:"ระวัง",info:"ข้อสังเกต"}[lv]}</span><div><b>${t}</b><p>${p}</p></div></div>`).join("") || `<p class="foot">ยังไม่มีข้อสังเกต</p>`;
 }
 
-const agentCell = a => `<i class="dot" style="background:var(--${a==="claude"?"claude":"cb"})"></i>${a==="claude"?"Claude":"CodeBuddy"}`;
+const agentCell = (a, r) => a==="claude" ? `<i class="dot" style="background:var(--claude)"></i>Claude` : a==="codebuddy" ? `<i class="dot" style="background:var(--cb)"></i>CodeBuddy${r&&r.via==="claude"?' <span class="pill info">Claude สั่ง</span>':""}` : `<i class="dot" style="background:var(--ink-3)"></i>${esc(a)}`;
 const costCell = r => r.agent==="codebuddy" ? `${fmt(r.credit,2)} cr` : (apiUsd(r)!=null ? `<span title="มูลค่าราคา API">$${fmt(apiUsd(r),2)}</span>` : "—");
 
 function renderLatest(){
   const rs=[...ROWS].sort((x,y)=>x.ts<y.ts?1:-1).slice(0,10);
   $("#latest-n").textContent = `${fmt(ROWS.length)} รอบในช่วงนี้`;
   $("#latest").innerHTML = `<thead><tr><th>เวลา</th><th>Agent</th><th>Repo</th><th>งานที่สั่ง</th><th class="n">Credit / มูลค่า API</th><th class="n">Token</th><th class="n">เวลา</th></tr></thead><tbody>`+
-    rs.map(r=>`<tr class="${newKeys.has(r.turn_key)?"fresh":""}"><td class="mono" style="white-space:nowrap">${r.ts.slice(5,16).replace("T"," ")}</td><td style="white-space:nowrap">${agentCell(r.agent)}</td><td>${esc(r.repo)}</td><td class="p">${esc(r.prompt||"—")}</td><td class="n">${costCell(r)}</td><td class="n">${fM(tokAll(r))}</td><td class="n">${fmt((r.elapsed_sec||0)/60,1)} น.</td></tr>`).join("")+"</tbody>";
+    rs.map(r=>`<tr class="${newKeys.has(r.turn_key)?"fresh":""}"><td class="mono" style="white-space:nowrap">${r.ts.slice(5,16).replace("T"," ")}</td><td style="white-space:nowrap">${agentCell(r.agent,r)}</td><td>${esc(r.repo)}</td><td class="p">${esc(r.prompt||"—")}</td><td class="n">${costCell(r)}</td><td class="n">${fM(tokAll(r))}</td><td class="n">${fmt((r.elapsed_sec||0)/60,1)} น.</td></tr>`).join("")+"</tbody>";
 }
 
 function renderRepos(){

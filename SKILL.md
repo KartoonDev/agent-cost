@@ -133,6 +133,12 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
 - **เปลี่ยน model กลาง session = cache miss** — call แรกหลัง `/model` อ่าน context ใหม่ทั้งก้อน
   (เจอจริง: 102k token cache ได้แค่ 11k → 24.84 credit ใน call เดียว)
 - **CodeBuddy ยิง Stop ก่อนเขียนข้อความสุดท้าย** (ซึ่งมี credit ของมันเอง) → hook รอไฟล์นิ่ง ≤3 วิ ก่อนอ่าน
+- **subagent ของ Claude** (Agent tool / workflow) ไม่ยิง Stop — capture รวม token จาก `<session>/subagents/*.jsonl`
+  ที่ timestamp อยู่ในช่วงรอบนั้นเข้าไปในรอบแม่ แล้วบอกไว้ใน `n_subagents` `subagent_tokens` `subagent_models`
+- **CLI ที่ Claude เรียก** (`cb.sh -p`, `claude -p`, `claude-9arm`) ยิง Stop ของตัวเองอยู่แล้ว เลยได้แถวแยก
+  hook ดู env `CLAUDE_CODE_SESSION_ID` ที่ Claude ส่งต่อให้ process ลูก → ถ้าไม่ใช่ session ตัวเอง ใส่ `via: "claude"`
+  + `parent_session` · ตอน `--rebuild` ไม่มี env ให้ดู เลยหา prompt ของแถวนั้นในคำสั่ง Bash ของ transcript Claude แทน
+- **Claude Code ที่ชี้ไป model อื่น** (เช่น gateway qwen) → `agent: "claude-code:qwen"` ไม่ปนยอด `claude`
 - **dedupe usage ตาม message id** — Claude เขียน assistant event ซ้ำ 3 รอบต่อ 1 ข้อความ
   (event ละ content block: thinking / text / tool_use) ถ้าบวกดื้อ ๆ token จะเกินจริง ~2-3 เท่า
   เคยเจอ 151 events → 67 ข้อความจริง
