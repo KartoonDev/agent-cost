@@ -1,0 +1,384 @@
+<title>CodeBuddy vs Claude Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#f5f6f8; --surface:#ffffff; --sunk:#eceef2; --line:#dde1e7;
+  --ink:#12151b; --ink-2:#4b5361; --ink-3:#7a8392;
+  --claude:#eb6834; --cb:#2a78d6;
+  --warn:#b26a00; --warn-bg:#fff4df; --crit:#c23b3b; --crit-bg:#fdecec; --ok:#1f7a4d; --ok-bg:#e6f4ec;
+  --sans:"IBM Plex Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#101318; --surface:#181c23; --sunk:#12161c; --line:#2a303a;
+    --ink:#eef1f5; --ink-2:#b3bac6; --ink-3:#848d9b;
+    --claude:#d95926; --cb:#3987e5;
+    --warn:#f0b249; --warn-bg:#2d2310; --crit:#f07c7c; --crit-bg:#2e1616; --ok:#5cc792; --ok-bg:#12281d;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101318; --surface:#181c23; --sunk:#12161c; --line:#2a303a;
+  --ink:#eef1f5; --ink-2:#b3bac6; --ink-3:#848d9b;
+  --claude:#d95926; --cb:#3987e5;
+  --warn:#f0b249; --warn-bg:#2d2310; --crit:#f07c7c; --crit-bg:#2e1616; --ok:#5cc792; --ok-bg:#12281d;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 24px 64px;display:flex;flex-direction:column;gap:28px}
+.num,td.n,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+h1{font-size:26px;line-height:1.2;margin:0;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:16px;margin:0;font-weight:600}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.sub{color:var(--ink-2);margin:6px 0 0;max-width:72ch}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:20px}
+.legend{display:flex;gap:16px;font-size:13px;color:var(--ink-2)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+section{display:flex;flex-direction:column;gap:12px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px}
+.duel{display:grid;grid-template-columns:1fr 1fr;gap:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.side{padding:18px 20px;display:flex;flex-direction:column;gap:14px}
+.side+.side{border-left:1px solid var(--line)}
+.side-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.side-h h2{display:flex;align-items:center;gap:8px}
+.tag{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.big{font-family:var(--mono);font-size:34px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+.big small{font-size:14px;color:var(--ink-2);font-weight:400;margin-left:4px}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px}
+.kv div{display:flex;flex-direction:column}
+.kv dt{font-size:12px;color:var(--ink-3)}
+.kv dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:15px}
+.verdict{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.vcell{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+.vcell .lbl{font-size:12px;color:var(--ink-3)}
+.vcell .val{font-family:var(--mono);font-size:20px;font-weight:600}
+.vcell .note{font-size:12px;color:var(--ink-2)}
+.bar-row{display:grid;grid-template-columns:78px 1fr 96px;align-items:center;gap:10px;font-size:13px}
+.bar-track{height:12px;background:var(--sunk);border-radius:0 3px 3px 0;position:relative}
+.bar-fill{height:100%;border-radius:0 3px 3px 0}
+.controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:end}
+.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink-3)}
+.field input{font-family:var(--mono);font-size:14px;width:120px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
+.field input:focus-visible,button:focus-visible{outline:2px solid var(--cb);outline-offset:2px}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.chart svg{width:100%;height:auto;display:block}
+.chart text{fill:var(--ink-3);font-family:var(--mono);font-size:10px}
+.chart .grid{stroke:var(--line);stroke-width:1}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{font-weight:500;color:var(--ink-3);text-align:left;font-size:12px;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+td.n,th.n{text-align:right;white-space:nowrap}
+td.p{color:var(--ink-2);max-width:46ch;min-width:28ch}
+tr:last-child td{border-bottom:0}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.findings{display:flex;flex-direction:column;gap:0}
+.finding{display:grid;grid-template-columns:84px 1fr;gap:14px;padding:12px 0;border-top:1px solid var(--line)}
+.finding:first-child{border-top:0;padding-top:0}
+.pill{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:99px;height:fit-content;text-align:center;font-weight:600}
+.pill.crit{color:var(--crit);background:var(--crit-bg)}
+.pill.warn{color:var(--warn);background:var(--warn-bg)}
+.pill.ok{color:var(--ok);background:var(--ok-bg)}
+.pill.info{color:var(--ink-2);background:var(--sunk)}
+.finding b{font-weight:600}
+.finding p{margin:2px 0 0;color:var(--ink-2);max-width:80ch}
+code{font-family:var(--mono);font-size:12px;background:var(--sunk);padding:1px 5px;border-radius:4px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{font:inherit;font-size:12px;border:0;background:var(--surface);color:var(--ink-2);padding:5px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.row-h{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+#tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--bg);font-family:var(--mono);font-size:12px;padding:6px 9px;border-radius:5px;white-space:nowrap;z-index:9}
+.foot{color:var(--ink-3);font-size:12px}
+@media (max-width:820px){.duel,.charts,.verdict{grid-template-columns:1fr}.side+.side{border-left:0;border-top:1px solid var(--line)}.kv{grid-template-columns:repeat(2,1fr)}}
+.head-r{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+.live{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--ok);background:var(--ok-bg);padding:4px 10px;border-radius:99px}
+.live.down{color:var(--crit);background:var(--crit-bg)}
+.pulse{width:8px;height:8px;border-radius:50%;background:currentColor;animation:pulse 2s ease-in-out infinite}
+.live.down .pulse{animation:none}
+@keyframes pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+.field select{font-family:var(--sans);font-size:14px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
+.field select:focus-visible{outline:2px solid var(--cb);outline-offset:2px}
+tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
+</style>
+
+<div class="wrap">
+<header>
+  <div>
+    <div class="eyebrow">agent-cost ledger · <span id="range">—</span></div>
+    <h1>CodeBuddy vs Claude — ใช้ไปเท่าไหร่</h1>
+    <p class="sub">อ่านสดจาก <code id="lpath">ledger.jsonl</code> · CodeBuddy คิดตาม credit · Claude คิดจากแพ็กเหมาใน <code>pricing.json</code> (ถ้ามี) ส่วนราคา API ใช้ดูว่าคุ้มกว่ากี่เท่า</p>
+  </div>
+  <div class="head-r">
+    <div class="live" id="live" role="status"><i class="pulse"></i><span id="live-t">กำลังโหลด…</span></div>
+    <div class="legend"><span><i class="sw" style="background:var(--cb)"></i>CodeBuddy</span><span><i class="sw" style="background:var(--claude)"></i>Claude</span></div>
+  </div>
+</header>
+
+<div class="duel" id="duel"></div>
+
+<section>
+  <div class="row-h">
+    <h2>เทียบกันแบบแฟร์ ๆ</h2>
+    <div class="controls">
+      <label class="field">ราคา 1 credit (USD)<input id="cpx" type="number" step="0.001" min="0" placeholder="ยังไม่รู้"></label>
+      <label class="field">แพ็ก Claude (USD/เดือน)<input id="plan" type="number" step="1" min="0" placeholder="ไม่มี"></label>
+      <label class="field">เฉลี่ยค่าแพ็ก<select id="basis"><option value="calendar">ทุกวันในปฏิทิน</option><option value="20">วันที่ใช้ ÷ 20 วัน/เดือน</option><option value="22">วันที่ใช้ ÷ 22 วัน/เดือน</option></select></label>
+      <label class="field">ช่วงวัน<select id="span"><option value="0">ทั้งหมด</option><option value="1">วันนี้</option><option value="7">7 วัน</option><option value="30">30 วัน</option></select></label>
+    </div>
+  </div>
+  <div class="verdict" id="verdict"></div>
+</section>
+
+<section>
+  <h2>รายวัน</h2>
+  <div class="charts">
+    <div class="panel chart"><div class="eyebrow" style="margin-bottom:8px">รอบต่อวัน</div><div id="c-turns"></div></div>
+    <div class="panel chart"><div class="eyebrow" style="margin-bottom:8px" id="c-cost-t">ค่าใช้จ่ายต่อวัน</div><div id="c-cost"></div></div>
+  </div>
+</section>
+
+<section>
+  <h2>ข้อสังเกตจาก ledger</h2>
+  <div class="panel findings" id="findings"></div>
+</section>
+
+<section>
+  <div class="row-h">
+    <h2>ล่าสุด</h2>
+    <span class="tag" id="latest-n"></span>
+  </div>
+  <div class="panel scroll"><table id="latest"></table></div>
+</section>
+
+<section>
+  <h2>แยกตาม repo</h2>
+  <div class="panel scroll"><table id="repos"></table></div>
+</section>
+
+<section>
+  <div class="row-h">
+    <h2>รอบที่แพงที่สุด</h2>
+    <div class="seg" role="group" aria-label="เลือก agent">
+      <button data-a="codebuddy" aria-pressed="true">CodeBuddy</button><button data-a="claude" aria-pressed="false">Claude</button>
+    </div>
+  </div>
+  <div class="panel scroll"><table id="top"></table></div>
+</section>
+
+<p class="foot">Token = input ที่ไม่ได้ cache + cache read + cache write + output (นิยามเดียวกันทั้งสองฝั่ง) · แพ็กเหมาเฉลี่ยได้ 2 แบบ: ทุกวันในปฏิทิน (นับวันที่ไม่ได้ใช้ด้วย) หรือ ÷ วันทำงานต่อเดือนแล้วคิดเฉพาะวันที่ใช้ · หน้านี้เช็ค ledger ทุก 4 วินาที</p>
+</div>
+<div id="tip" hidden></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmt = (n,d=0) => n==null||!isFinite(n) ? "—" : n.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const fM = n => !isFinite(n) ? "—" : n>=1e9 ? fmt(n/1e9,2)+"B" : n>=1e6 ? fmt(n/1e6,1)+"M" : n>=1e3 ? fmt(n/1e3,1)+"k" : fmt(n);
+const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const store = { get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,v)}catch(e){}} };
+const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+
+let ALL = [], PRICING = {}, creditUsd = null, planUsd = null, planBasis = "calendar", spanDays = 0, newKeys = new Set(), knownKeys = null;
+let ROWS = [], CB = [], CL = [];
+
+const ctx = r => (r.input_tokens||0)+(r.cache_read_tokens||0)+(r.cache_write_tokens||0);
+const tokAll = r => ctx(r)+(r.output_tokens||0);
+function apiUsd(r){
+  const p = PRICING[r.model]; if(!p || r.agent!=="claude") return null;
+  const cw = p.cache_write ?? (p.input||0)*1.25;
+  return ((r.input_tokens||0)*(p.input||0) + (r.output_tokens||0)*(p.output||0) + (r.cache_read_tokens||0)*(p.cache_read||0) + (r.cache_write_tokens||0)*cw)/1e6;
+}
+const cbUsd = r => creditUsd ? (r.credit||0)*creditUsd : null;
+const isNoise = r => /^<local-command|^<bash-|^\/(usage|model|clear|cost)\b|^Reply with exactly|^$/.test(r.prompt||"");
+
+// Flat plan, two ways to spread it:
+//  calendar — paid every calendar day, used or not, across the range (a month = its real length)
+//  N        — a month counts as N working days; each day with usage costs plan/N
+function planCost(rs){
+  const days=[...new Set(rs.map(r=>r.ts.slice(0,10)))].sort();
+  const perDay=new Map(); if(!days.length||!planUsd) return {usd:0,n:0,perDay};
+  if(planBasis!=="calendar"){ const v=planUsd/Number(planBasis); days.forEach(d=>perDay.set(d,v)); return {usd:v*days.length, n:days.length, perDay}; }
+  const d=new Date(days[0]+"T00:00:00"), end=new Date(days.at(-1)+"T00:00:00"); let usd=0;
+  while(d<=end){ const v=planUsd/new Date(d.getFullYear(),d.getMonth()+1,0).getDate(); usd+=v; perDay.set(dayKey(d),v); d.setDate(d.getDate()+1); }
+  return {usd, n:perDay.size, perDay};
+}
+function agg(rs){
+  const s={n:rs.length, sess:new Set(rs.map(r=>r.session_id)).size, credit:0, api:0, hasApi:false, ctx:0, out:0, sec:0, tools:0, days:new Set()};
+  rs.forEach(r=>{ s.credit+=r.credit||0; const u=apiUsd(r); if(u!=null){s.api+=u;s.hasApi=true} s.ctx+=ctx(r); s.out+=r.output_tokens||0; s.sec+=r.elapsed_sec||0; s.tools+=r.n_tool_calls||0; s.days.add(r.ts.slice(0,10)); });
+  return s;
+}
+const models = rs => [...new Set(rs.map(r=>r.model).filter(Boolean))].slice(0,3).join(" · ") || "—";
+
+function renderDuel(){
+  const a=agg(CB), b=agg(CL), pc=planCost(CL), plan=(PRICING._plans||{}).claude||{};
+  const side=(name,color,s,big,tag)=>`<div class="side">
+    <div class="side-h"><h2><i class="sw" style="background:${color}"></i>${name}</h2><span class="tag">${esc(tag)}</span></div>
+    <div class="big">${big}</div>
+    <dl class="kv">
+      <div><dt>รอบ</dt><dd>${fmt(s.n)}</dd></div><div><dt>session</dt><dd>${fmt(s.sess)}</dd></div><div><dt>วันที่มีข้อมูล</dt><dd>${s.days.size}</dd></div>
+      <div><dt>token</dt><dd>${fM(s.ctx+s.out)}</dd></div><div><dt>output token</dt><dd>${fM(s.out)}</dd></div><div><dt>tool calls</dt><dd>${fmt(s.tools)}</dd></div>
+      <div><dt>เวลารวม</dt><dd>${fmt(s.sec/3600,1)} ชม.</dd></div><div><dt>เฉลี่ย / รอบ</dt><dd>${s.n?fmt(s.sec/s.n):"—"} s</dd></div><div><dt>token / รอบ</dt><dd>${s.n?fM((s.ctx+s.out)/s.n):"—"}</dd></div>
+    </dl></div>`;
+  const cbBig = `${fmt(a.credit,2)}<small>credit</small>` + (creditUsd?`<small>≈ $${fmt(a.credit*creditUsd,2)}</small>`:"");
+  const clBig = planUsd ? `$${fmt(pc.usd,2)}<small>${planBasis==="calendar"?"จ่ายจริง · "+pc.n+" วันปฏิทิน":"ใช้ "+pc.n+" วัน × $"+fmt(planUsd/Number(planBasis),2)}</small>` : (b.hasApi ? `$${fmt(b.api,2)}<small>ราคา API</small>` : `—<small>ใส่แพ็กหรือราคา API</small>`);
+  const clTag = (planUsd ? `${plan.name||"แพ็ก"} $${fmt(planUsd,0)}/เดือน` : models(CL)) + (planUsd&&b.hasApi ? ` · มูลค่า API $${fmt(b.api,0)}` : "");
+  $("#duel").innerHTML = side("CodeBuddy","var(--cb)",a,cbBig,models(CB)) + side("Claude Code","var(--claude)",b,clBig,clTag);
+}
+
+function claudeCost(){ const b=agg(CL); return planUsd ? planCost(CL).usd : (b.hasApi ? b.api : null); }
+
+function renderVerdict(){
+  const a=agg(CB), b=agg(CL), cl=claudeCost();
+  const cbPerM=a.credit/((a.ctx+a.out)/1e6), clPerM=cl==null?null:cl/((b.ctx+b.out)/1e6);
+  const basis = planUsd ? "คิดจากแพ็ก" : "คิดจากราคา API";
+  const cells=[];
+  cells.push(`<div class="vcell"><span class="lbl">ต่อ 1M token</span><span class="val"><span style="color:var(--cb)">${fmt(cbPerM,1)} cr</span> · <span style="color:var(--claude)">$${fmt(clPerM,4)}</span></span><span class="note">Claude ${basis}${planUsd&&b.hasApi?` · ราคา API จะเป็น $${fmt(b.api/((b.ctx+b.out)/1e6),2)} (แพ็กคุ้มกว่า ${fmt(b.api/cl,0)}×)`:""}</span></div>`);
+  cells.push(`<div class="vcell"><span class="lbl">ต่อ 1 รอบ</span><span class="val"><span style="color:var(--cb)">${fmt(a.credit/a.n,1)} cr</span> · <span style="color:var(--claude)">$${fmt(cl/b.n,3)}</span></span><span class="note">token ต่อรอบ ${fM((a.ctx+a.out)/a.n)} vs ${fM((b.ctx+b.out)/b.n)} — ขนาดงานต่างกัน เทียบต่อรอบตรง ๆ ไม่ได้</span></div>`);
+  if(clPerM==null || !a.n){
+    cells.push(`<div class="vcell"><span class="lbl">จุดคุ้มทุน</span><span class="val">—</span><span class="note">ต้องมีข้อมูลทั้งสองฝั่ง และใส่แพ็ก Claude หรือราคา API ใน pricing.json</span></div>`);
+  } else if(creditUsd){
+    const ratio=(cbPerM*creditUsd)/clPerM;
+    cells.push(`<div class="vcell"><span class="lbl">ต่อ 1M token ที่ ${fmt(creditUsd,4)} USD/credit</span><span class="val" style="color:${ratio<1?"var(--ok)":"var(--crit)"}">CodeBuddy ${ratio<1?"ถูกกว่า "+fmt(1/ratio,1)+"×":"แพงกว่า "+fmt(ratio,1)+"×"}</span><span class="note">$${fmt(cbPerM*creditUsd,3)} vs $${fmt(clPerM,4)} ต่อ 1M token</span></div>`);
+  } else {
+    cells.push(`<div class="vcell"><span class="lbl">จุดคุ้มทุน (ต่อ 1M token)</span><span class="val">$${fmt(clPerM/cbPerM,5)} / credit</span><span class="note">1 credit ต้องถูกกว่านี้ CodeBuddy ถึงจะถูกกว่า Claude — ใส่ราคา credit ด้านบนเพื่อดูผล</span></div>`);
+  }
+  $("#verdict").innerHTML = cells.join("");
+}
+
+function niceStep(x){ if(!(x>0)) return 1; const p=Math.pow(10,Math.floor(Math.log10(x))), m=x/p; return (m<=1?1:m<=2?2:m<=5?5:10)*p; }
+function barChart(el, days, series, fmtV, label){
+  const W=520,H=210,L=48,R=8,T=10,B=26, iw=W-L-R, ih=H-T-B;
+  const max=Math.max(0,...days.flatMap(d=>series.map(s=>s.get(d)||0)));
+  const step=niceStep((max||1)/4), top=Math.max(step,Math.ceil(max/step)*step);
+  const y=v=>T+ih-(v/top)*ih, gw=iw/Math.max(1,days.length), bw=Math.max(2,Math.min(26,(gw-6-2*(series.length-1))/series.length));
+  const every=Math.ceil(days.length/12);
+  let g="";
+  for(let v=0; v<=top+1e-9; v+=step) g+=`<line class="grid" x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L-6}" y="${y(v)+3}" text-anchor="end">${fmtV(v,true)}</text>`;
+  days.forEach((d,i)=>{
+    const cx=L+gw*i+gw/2, x0=cx-(bw*series.length+2*(series.length-1))/2;
+    series.forEach((s,j)=>{ const v=s.get(d)||0, x=x0+j*(bw+2), tip=`${d.slice(5)} · ${s.name}: ${fmtV(v)}`;
+      if(v){ const h=Math.max(1,T+ih-y(v)), r=Math.min(4,bw/2,h);
+        g+=`<path d="M${x},${T+ih} v${-(h-r)} q0,${-r} ${r},${-r} h${bw-2*r} q${r},0 ${r},${r} v${h-r} z" fill="${s.color}"/>`; }
+      g+=`<rect x="${x-2}" y="${T}" width="${bw+4}" height="${ih}" fill="transparent" data-tip="${esc(tip)}"/>`; });
+    if(i%every===0) g+=`<text x="${cx}" y="${H-8}" text-anchor="middle">${d.slice(5)}</text>`;
+  });
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${g}</svg>`;
+}
+function renderCharts(){
+  const days=[...new Set(ROWS.map(r=>r.ts.slice(0,10)))].sort();
+  const by=(rs,f)=>{ const m=new Map(); rs.forEach(r=>{const d=r.ts.slice(0,10); m.set(d,(m.get(d)||0)+f(r));}); return m; };
+  const g=m=>d=>m.get(d);
+  barChart($("#c-turns"), days, [{name:"CodeBuddy",color:"var(--cb)",get:g(by(CB,()=>1))},{name:"Claude",color:"var(--claude)",get:g(by(CL,()=>1))}], v=>fmt(v), "รอบต่อวัน");
+  const pd=planCost(CL).perDay;
+  if(creditUsd && (planUsd || agg(CL).hasApi)){
+    $("#c-cost-t").textContent = planUsd ? "จ่ายจริงต่อวัน (USD) · Claude = ค่าแพ็กเฉลี่ยรายวัน" : "ค่าใช้จ่ายต่อวัน (USD) · Claude = ราคา API";
+    barChart($("#c-cost"), days, [{name:"CodeBuddy",color:"var(--cb)",get:g(by(CB,r=>cbUsd(r)||0))},
+      {name:planUsd?"Claude (แพ็ก)":"Claude (API)",color:"var(--claude)",get:planUsd?(d=>pd.get(d)):g(by(CL,r=>apiUsd(r)||0))}], (v,ax)=>"$"+fmt(v,ax&&v>=10?0:2), "USD ต่อวัน");
+  } else {
+    $("#c-cost-t").textContent = "CodeBuddy credit ต่อวัน" + (planUsd ? ` — Claude เป็นแพ็ก ~$${fmt(planUsd/(planBasis==="calendar"?30:Number(planBasis)),2)}/${planBasis==="calendar"?"วัน ทุกวัน":"วันที่ใช้"}` : "");
+    barChart($("#c-cost"), days, [{name:"CodeBuddy",color:"var(--cb)",get:g(by(CB,r=>r.credit||0))}], (v,ax)=>fmt(v,ax?0:2)+" cr", "credit ต่อวัน");
+  }
+}
+
+function renderFindings(){
+  const a=agg(CB), b=agg(CL), F=[];
+  if(planUsd && b.hasApi){ const pc=planCost(CL);
+    F.push(["info","Claude เป็นแพ็กเหมา ไม่ได้จ่ายตาม token", `แพ็ก $${fmt(planUsd,0)}/เดือน ${planBasis==="calendar"?`เฉลี่ยทุกวันปฏิทิน ${pc.n} วัน`:`คิด ${planBasis} วัน/เดือน × ใช้จริง ${pc.n} วัน`} = $${fmt(pc.usd,2)} ถ้าจ่ายราคา API จะเป็น $${fmt(b.api,0)} (${fmt(b.api/pc.usd,0)}×)`]); }
+  const noise=CB.filter(isNoise);
+  if(noise.length) F.push(["warn","รอบที่ label เป็นคำสั่งหรือว่าง", `${noise.length} รอบของ CodeBuddy (${fmt(noise.reduce((s,r)=>s+(r.credit||0),0),1)} credit) ไม่มี prompt ที่อ่านรู้เรื่อง — ถ้าเพิ่งอัปเดตสคริปต์ ลอง <code>capture.py --rebuild</code>`]);
+  // A model switch inside a session forces a full cache miss on the next call.
+  const switches=[]; const bySess=new Map(); [...CB,...CL].sort((x,y)=>x.ts<y.ts?-1:1).forEach(r=>{ const p=bySess.get(r.session_id); if(p&&p.model&&r.model&&p.model!==r.model) switches.push(r); bySess.set(r.session_id,r); });
+  if(switches.length){ const cr=switches.reduce((s,r)=>s+(r.credit||0),0);
+    F.push(["warn","เปลี่ยน model กลาง session", `${switches.length} ครั้ง — call แรกหลังเปลี่ยนต้องอ่าน context ใหม่ทั้งก้อนเพราะ cache ใช้ข้าม model ไม่ได้${cr?` (รอบเหล่านั้นรวม ${fmt(cr,1)} credit)`:""} ถ้าจะเปลี่ยน model ให้เปิด session ใหม่`]); }
+  const both=[...new Set(CB.map(r=>r.repo))].filter(x=>CL.some(r=>r.repo===x));
+  F.push(["info","งานที่เอามาเทียบกันได้", both.length ? `repo ที่ใช้ทั้งคู่: ${both.slice(0,6).map(x=>`<code>${esc(x)}</code>`).join(" ")} — เทียบ agent กันจาก repo เหล่านี้แฟร์กว่ายอดรวม` : "ยังไม่มี repo ที่ใช้ทั้งสองตัว ยอดรวมจึงมาจากงานคนละแบบ"]);
+  if(CB.length){ const t=[...CB].sort((x,y)=>(y.credit||0)-(x.credit||0))[0], share=(t.credit||0)/a.credit;
+    if(share>0.1) F.push(["info","รอบเดียวกินสัดส่วนสูง", `${esc((t.prompt||"—").slice(0,70))} ใช้ ${fmt(t.credit,2)} credit = ${fmt(share*100,0)}% ของ CodeBuddy ในช่วงนี้ (${esc(t.model)})`]); }
+  $("#findings").innerHTML = F.map(([lv,t,p])=>`<div class="finding"><span class="pill ${lv}">${{warn:"ระวัง",info:"ข้อสังเกต"}[lv]}</span><div><b>${t}</b><p>${p}</p></div></div>`).join("") || `<p class="foot">ยังไม่มีข้อสังเกต</p>`;
+}
+
+const agentCell = a => `<i class="dot" style="background:var(--${a==="claude"?"claude":"cb"})"></i>${a==="claude"?"Claude":"CodeBuddy"}`;
+const costCell = r => r.agent==="codebuddy" ? `${fmt(r.credit,2)} cr` : (apiUsd(r)!=null ? `<span title="มูลค่าราคา API">$${fmt(apiUsd(r),2)}</span>` : "—");
+
+function renderLatest(){
+  const rs=[...ROWS].sort((x,y)=>x.ts<y.ts?1:-1).slice(0,10);
+  $("#latest-n").textContent = `${fmt(ROWS.length)} รอบในช่วงนี้`;
+  $("#latest").innerHTML = `<thead><tr><th>เวลา</th><th>Agent</th><th>Repo</th><th>งานที่สั่ง</th><th class="n">Credit / มูลค่า API</th><th class="n">Token</th><th class="n">เวลา</th></tr></thead><tbody>`+
+    rs.map(r=>`<tr class="${newKeys.has(r.turn_key)?"fresh":""}"><td class="mono" style="white-space:nowrap">${r.ts.slice(5,16).replace("T"," ")}</td><td style="white-space:nowrap">${agentCell(r.agent)}</td><td>${esc(r.repo)}</td><td class="p">${esc(r.prompt||"—")}</td><td class="n">${costCell(r)}</td><td class="n">${fM(tokAll(r))}</td><td class="n">${fmt((r.elapsed_sec||0)/60,1)} น.</td></tr>`).join("")+"</tbody>";
+}
+
+function renderRepos(){
+  const m=new Map(); ROWS.forEach(r=>{ const k=r.repo+"|"+r.agent; (m.get(k)||m.set(k,{repo:r.repo,agent:r.agent,rows:[]}).get(k)).rows.push(r); });
+  const list=[...m.values()].map(o=>({...o,s:agg(o.rows)})).sort((x,y)=>(x.agent===y.agent?0:x.agent==="codebuddy"?-1:1)||(x.agent==="codebuddy"?y.s.credit-x.s.credit:y.s.ctx-x.s.ctx));
+  $("#repos").innerHTML = `<thead><tr><th>Repo</th><th>Agent</th><th class="n">รอบ</th><th class="n">Credit</th><th class="n">มูลค่า API</th><th class="n">Token</th><th class="n">Output</th><th class="n">เวลา</th></tr></thead><tbody>`+
+    list.map(o=>`<tr><td>${esc(o.repo)}</td><td style="white-space:nowrap">${agentCell(o.agent)}</td><td class="n">${o.s.n}</td><td class="n">${o.agent==="codebuddy"?fmt(o.s.credit,2):"—"}</td><td class="n">${o.s.hasApi?"$"+fmt(o.s.api,2):"—"}</td><td class="n">${fM(o.s.ctx+o.s.out)}</td><td class="n">${fM(o.s.out)}</td><td class="n">${fmt(o.s.sec/60,0)} น.</td></tr>`).join("")+"</tbody>";
+}
+
+let topAgent = store.get("ac-top") || "codebuddy";
+function renderTop(){
+  document.querySelectorAll(".seg button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.a===topAgent)));
+  const score = r => topAgent==="claude" ? (apiUsd(r) ?? tokAll(r)/1e9) : (r.credit||0);
+  const rs=(topAgent==="claude"?CL:CB).slice().sort((x,y)=>score(y)-score(x)).slice(0,12);
+  $("#top").innerHTML = `<thead><tr><th>เวลา</th><th>Repo</th><th>งานที่สั่ง</th><th>Model</th><th class="n">${topAgent==="claude"?"มูลค่า API":"Credit"}</th><th class="n">Token</th><th class="n">Tools</th><th class="n">เวลา</th></tr></thead><tbody>`+
+    rs.map(r=>`<tr><td class="mono" style="white-space:nowrap">${r.ts.slice(5,16).replace("T"," ")}</td><td>${esc(r.repo)}</td><td class="p">${esc(r.prompt||"—")}</td><td class="mono">${esc(r.model)}</td><td class="n">${costCell(r)}</td><td class="n">${fM(tokAll(r))}</td><td class="n">${r.n_tool_calls||0}</td><td class="n">${fmt((r.elapsed_sec||0)/60,1)} น.</td></tr>`).join("")+"</tbody>";
+}
+
+function filterRows(){
+  if(!spanDays){ ROWS=ALL; } else { const d=new Date(); d.setDate(d.getDate()-(spanDays-1)); const from=dayKey(d); ROWS=ALL.filter(r=>r.ts.slice(0,10)>=from); }
+  CB=ROWS.filter(r=>r.agent==="codebuddy"); CL=ROWS.filter(r=>r.agent==="claude");
+}
+function renderAll(){
+  filterRows();
+  const ds=ROWS.map(r=>r.ts).sort(); $("#range").textContent = ds.length ? ds[0].slice(0,10)+" → "+ds.at(-1).slice(0,10) : "ไม่มีข้อมูลในช่วงนี้";
+  renderDuel(); renderVerdict(); renderCharts(); renderFindings(); renderLatest(); renderRepos(); renderTop();
+}
+
+// ---- live polling ----
+let etag = null, lastOk = 0, failing = false;
+async function poll(){
+  try{
+    const res = await fetch("/api/ledger", {headers: etag ? {"If-None-Match": etag} : {}, cache:"no-store"});
+    if(res.status===200){
+      const data = await res.json(); etag = res.headers.get("ETag");
+      const keys = new Set(data.rows.map(r=>r.turn_key));
+      newKeys = knownKeys ? new Set([...keys].filter(k=>!knownKeys.has(k))) : new Set();
+      knownKeys = keys; ALL = data.rows.filter(r=>r.ts); PRICING = data.pricing||{};
+      $("#lpath").textContent = data.ledger;
+      applyPlanDefault(); renderAll();
+      if(newKeys.size) setTimeout(()=>{ newKeys=new Set(); renderLatest(); }, 6000);
+    } else if(res.status!==304) throw new Error(res.status);
+    lastOk = Date.now(); failing = false;
+  }catch(e){ failing = true; }
+  setLive();
+}
+function setLive(){
+  const el=$("#live"); el.classList.toggle("down", failing);
+  if(!lastOk && !failing){ $("#live-t").textContent="กำลังโหลด…"; return; }
+  $("#live-t").textContent = failing ? "ต่อ server ไม่ได้ — ยังรัน dashboard.py อยู่ไหม" : "สด · เช็คล่าสุด " + new Date(lastOk).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+}
+
+let planTouched = store.get("ac-plan") !== null;
+function applyPlanDefault(){
+  if(planTouched) return;
+  const p=((PRICING._plans||{}).claude||{}).usd_per_month; planUsd = p>0 ? p : null; $("#plan").value = planUsd ?? "";
+  const dpm=((PRICING._plans||{}).claude||{}).days_per_month; if(dpm>0 && store.get("ac-basis")===null){ planBasis=String(dpm); if(![...$("#basis").options].some(o=>o.value===planBasis)) $("#basis").add(new Option(`วันที่ใช้ ÷ ${dpm} วัน/เดือน`,planBasis)); $("#basis").value=planBasis; }
+  const c=((PRICING._plans||{}).codebuddy||{}).usd_per_credit; if(c>0 && store.get("ac-cpx")===null){ creditUsd=c; $("#cpx").value=c; }
+}
+
+(function init(){
+  const c=parseFloat(store.get("ac-cpx")); if(c>0){ creditUsd=c; $("#cpx").value=c; }
+  if(planTouched){ const p=parseFloat(store.get("ac-plan")); planUsd = p>0?p:null; $("#plan").value = planUsd ?? ""; }
+  const bs=store.get("ac-basis"); if(bs){ planBasis=bs; $("#basis").value=bs; }
+  $("#basis").addEventListener("change",e=>{ planBasis=e.target.value; store.set("ac-basis",planBasis); renderAll(); });
+  const sp=parseInt(store.get("ac-span")); if(sp>=0){ spanDays=sp; $("#span").value=String(sp); }
+  $("#cpx").addEventListener("input",e=>{ const v=parseFloat(e.target.value); creditUsd=v>0?v:null; store.set("ac-cpx", creditUsd?String(creditUsd):""); renderAll(); });
+  $("#plan").addEventListener("input",e=>{ const v=parseFloat(e.target.value); planUsd=v>0?v:null; planTouched=true; store.set("ac-plan", planUsd?String(planUsd):"0"); renderAll(); });
+  $("#span").addEventListener("change",e=>{ spanDays=parseInt(e.target.value)||0; store.set("ac-span",String(spanDays)); renderAll(); });
+  document.querySelectorAll(".seg button").forEach(b=>b.addEventListener("click",()=>{ topAgent=b.dataset.a; store.set("ac-top",topAgent); renderTop(); }));
+  const tip=$("#tip");
+  document.addEventListener("mousemove",e=>{ const t=e.target.closest&&e.target.closest("[data-tip]"); if(!t){tip.hidden=true;return;} tip.textContent=t.dataset.tip; tip.hidden=false; tip.style.left=(e.clientX+12)+"px"; tip.style.top=(e.clientY-30)+"px"; });
+  poll(); setInterval(()=>{ if(!document.hidden) poll(); }, 4000); setInterval(setLive, 1000);
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden) poll(); });
+})();
+</script>

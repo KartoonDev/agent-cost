@@ -62,12 +62,19 @@ def plan_of(pricing, agent):
 
 
 def plan_cost(rows, plan):
-    """(usd, first_day, last_day, n_days) — plan fee pro-rated over the covered calendar days."""
+    """(usd, first_day, last_day, n_days) — plan fee pro-rated.
+
+    Default: every calendar day in range pays its share, used or not.
+    With `days_per_month: N` a month counts as N working days and only days
+    that actually have usage are charged plan/N each.
+    """
     days = sorted({(r.get("ts") or "")[:10] for r in rows if r.get("ts")})
     if not days or not plan.get("usd_per_month"):
         return None
     first = datetime.date.fromisoformat(days[0])
     last = datetime.date.fromisoformat(days[-1])
+    if plan.get("days_per_month"):
+        return plan["usd_per_month"] / plan["days_per_month"] * len(days), first, last, len(days)
     usd_total, d = 0.0, first
     while d <= last:
         nxt = (d.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
@@ -93,7 +100,8 @@ def real_cost_section(rows, pricing):
             cost, first, last, n = pc
             per_m = f"${cost/mtok:.4f}" if mtok else "—"
             row = (f"| **{ag}** | {plan.get('name') or 'แพ็กเหมา'} ${plan['usd_per_month']:g}/เดือน "
-                   f"× {n} วัน ({first:%d/%m}–{last:%d/%m}) | **${cost:.2f}** "
+                   + (f"÷ {plan['days_per_month']:g} วัน × ใช้ {n} วัน" if plan.get("days_per_month") else f"× {n} วันปฏิทิน")
+                   + f" ({first:%d/%m}–{last:%d/%m}) | **${cost:.2f}** "
                    f"| ${cost/a['turns']:.3f} | {per_m} |")
             if a["has_usd"] and cost:
                 row += f" ${a['usd']:.2f} · คุ้มกว่า API {a['usd']/cost:.0f}× |"
@@ -112,7 +120,8 @@ def real_cost_section(rows, pricing):
     return ["## จ่ายจริงเท่าไหร่", "",
             "| Agent | คิดเงินแบบ | ช่วงนี้จ่าย | ต่อรอบ | ต่อ 1M token | ถ้าจ่ายราคา API |",
             "|---|---|--:|--:|--:|---|", *lines, "",
-            "> แพ็กเหมาเฉลี่ยตามวันที่ ledger มีข้อมูล (นับวันที่ไม่ได้ใช้ตรงกลางด้วย เพราะจ่ายอยู่ดี) "
+            "> แพ็กเหมาเฉลี่ยทุกวันในปฏิทิน (นับวันที่ไม่ได้ใช้ด้วย) หรือใส่ `_plans.claude.days_per_month` "
+            "เพื่อคิดเฉพาะวันที่ใช้ วันละ ค่าแพ็ก ÷ จำนวนวันนั้น "
             "· ใส่ราคา credit ได้ที่ `_plans.codebuddy.usd_per_credit` ใน `pricing.json`", ""]
 
 

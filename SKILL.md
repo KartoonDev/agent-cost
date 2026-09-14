@@ -24,10 +24,11 @@ Credits/Tokens/Elapsed ที่ UI โชว์มาจาก API ไม่ไ
 ไม่เดาราคาให้ ตัวเลขที่มั่วมาแพงกว่าช่องว่าง
 
 **ใช้แพ็กเหมา (Pro / Max)** → ราคา API ไม่ใช่เงินที่จ่ายจริง ใส่ `_plans` แล้ว report จะเพิ่มหัวข้อ "จ่ายจริงเท่าไหร่"
-ที่เฉลี่ยค่าแพ็กตามวันที่ ledger มีข้อมูล (ราคา API เหลือไว้ดูว่าคุ้มกว่ากี่เท่า):
+ที่เฉลี่ยค่าแพ็กตามวันที่ ledger มีข้อมูล (ราคา API เหลือไว้ดูว่าคุ้มกว่ากี่เท่า)
+ไม่ใส่ `days_per_month` = หารทุกวันในปฏิทิน · ใส่ 20 = คิดเฉพาะวันที่ใช้ วันละ ค่าแพ็ก ÷ 20:
 
 ```json
-{"_plans": {"claude": {"name": "Max 5x", "usd_per_month": 100},
+{"_plans": {"claude": {"name": "Max 5x", "usd_per_month": 100, "days_per_month": 20},
             "codebuddy": {"usd_per_credit": 0.01}},
  "claude-opus-5": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write": 6.25}}
 ```
@@ -58,6 +59,15 @@ python3 ~/.claude/skills/agent-cost/scripts/report.py --repo my-service  # เ�
 python3 ~/.claude/skills/agent-cost/scripts/report.py --since 2026-09-01 --agent codebuddy
 python3 ~/.claude/skills/agent-cost/scripts/report.py --ledger 'team/ledger-*.jsonl' --by-owner  # รวมของทั้งทีม
 ```
+
+**dashboard สด (localhost):** อ่าน ledger + `pricing.json` แล้วหน้าเว็บเช็คใหม่ทุก 4 วิ รอบที่เพิ่งจบขึ้นเองไม่ต้อง refresh
+
+```bash
+python3 ~/.claude/skills/agent-cost/scripts/dashboard.py --open          # http://127.0.0.1:8791  (--port เปลี่ยนได้)
+```
+
+bind แค่ 127.0.0.1 และตอบเฉพาะ Host ที่เป็น localhost — ledger มี prompt กับ path ไฟล์ ไม่ควรเปิดออกนอกเครื่อง
+ราคา credit / ค่าแพ็กที่พิมพ์ในหน้าเก็บใน browser ถ้าไม่พิมพ์จะใช้ `_plans` จาก `pricing.json`
 
 `--ledger` รับ glob ของ ledger คนอื่นที่ขอมา ชื่อคนอ่านจากชื่อไฟล์ `ledger-<ชื่อ>.jsonl`
 ไฟล์ซ้ำไม่นับซ้ำ (dedupe ด้วย `turn_key`) · `--owner <ชื่อ>` เจาะรายคน
