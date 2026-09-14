@@ -103,12 +103,25 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
 ## กติกาการนับ (สำคัญตอนตีความตัวเลข)
 
 - **1 record = 1 รอบ** (ตั้งแต่ prompt ของคนจนจบ) ไม่ใช่ 1 API call — เรียก tool 40 ครั้งก็ยังนับเป็นรอบเดียว
-  tool result ไม่นับเป็น prompt ของคน
+  สิ่งที่ **ไม่นับ** เป็น prompt: tool result, skill body ที่ถูกแทรก (`isMeta`), echo ของคำสั่ง local
+  (`/model` `/clear` `/usage` → `<local-command-stdout>`), `!bash` echo, `[Request interrupted by user]`
+  เคยนับผิด: พิมพ์ `/model` ระหว่างรอบ → รอบถูกตัดกลาง credit ครึ่งแรกหาย + label กลายเป็น "Switch model to …"
+- **token นิยามเดียวกันทั้งสองฝั่ง** (`usage_v: 2`): `input_tokens` = input ที่ไม่ได้มาจาก cache เท่านั้น ·
+  `cache_read_tokens` / `cache_write_tokens` แยก · `total_tokens` = input + cache read + cache write + output
+  CodeBuddy ส่ง `prompt_tokens` ที่รวม cache hit มาแล้ว เลยต้องหักออก ส่วน Claude แยกมาให้อยู่แล้ว
+  ⚠️ ก่อน v2 `total_tokens` ของ Claude ไม่รวม cache → ดูน้อยกว่าจริงหลายร้อยเท่า
+- **เปลี่ยน model กลาง session = cache miss** — call แรกหลัง `/model` อ่าน context ใหม่ทั้งก้อน
+  (เจอจริง: 102k token cache ได้แค่ 11k → 24.84 credit ใน call เดียว)
+- **CodeBuddy ยิง Stop ก่อนเขียนข้อความสุดท้าย** (ซึ่งมี credit ของมันเอง) → hook รอไฟล์นิ่ง ≤3 วิ ก่อนอ่าน
 - **dedupe usage ตาม message id** — Claude เขียน assistant event ซ้ำ 3 รอบต่อ 1 ข้อความ
   (event ละ content block: thinking / text / tool_use) ถ้าบวกดื้อ ๆ token จะเกินจริง ~2-3 เท่า
   เคยเจอ 151 events → 67 ข้อความจริง
 - **`turn_key`** = sha1(agent+session+turn index) กัน hook ยิงซ้ำแล้วนับซ้ำ
 - **elapsed** = timestamp สุดท้าย − แรกของรอบนั้น รวมเวลาที่รอ tool ด้วย → ไม่เท่ากับเวลา inference ล้วน
+  นับเฉพาะ event ที่เป็นงาน (ข้อความ / tool call / tool result) — `queue-operation` `attachment` โผล่ทีหลังได้เป็นวัน
+- **ledger เก่าหรือ capture รุ่นก่อน** → `python3 scripts/capture.py --rebuild` คำนวณทุกแถวใหม่จาก transcript
+  (backup เป็น `ledger.jsonl.bak-*` ก่อนเสมอ) แถวที่เป็นชิ้นของรอบเดียวกันจะรวมเป็นแถวเดียว
+  แถวที่ transcript หายไปแล้ว / กรอกมือ → แก้แค่นิยาม token ด้วยการคำนวณ
 - **`prompt`** ถ้าเป็น slash command จะย่อเหลือชื่อคำสั่ง (`/pr-review <args>`) เพราะ transcript เก็บ
   SKILL.md มาทั้งก้อน เอามาเป็น label ไม่ได้
 - รอบที่ไม่มี output token และไม่มี credit → ข้าม ไม่เขียนลง ledger

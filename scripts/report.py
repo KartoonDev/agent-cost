@@ -24,7 +24,9 @@ PRICING = os.path.join(LEDGER_DIR, "pricing.json")
 
 
 def load_pricing():
-    """Optional {model: {input, output, cache_read}} in USD per 1M tokens.
+    """Optional {model: {input, output, cache_read, cache_write}} in USD per 1M tokens.
+
+    cache_write defaults to input × 1.25 (5-minute cache) when omitted.
 
     Claude transcripts carry no credit field, so USD is only ever an estimate
     from token counts. Absent pricing → the report shows tokens and no money,
@@ -44,7 +46,8 @@ def usd(rec, pricing):
     return round(
         rec.get("input_tokens", 0) / 1e6 * p.get("input", 0)
         + rec.get("output_tokens", 0) / 1e6 * p.get("output", 0)
-        + rec.get("cache_read_tokens", 0) / 1e6 * p.get("cache_read", 0),
+        + rec.get("cache_read_tokens", 0) / 1e6 * p.get("cache_read", 0)
+        + rec.get("cache_write_tokens", 0) / 1e6 * p.get("cache_write", p.get("input", 0) * 1.25),
         4,
     )
 

@@ -102,3 +102,12 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
 - `turn had no usage — skipped` = รอบนั้นไม่ได้ใช้อะไรจริง ปกติ
 - ไม่มี output เลย = hook ยังไม่เข้า → รัน `install.py` ใหม่แล้วดูบรรทัด `settings:`
 - hook พังยังไงก็ **ไม่ทำให้ agent สะดุด** สคริปต์ exit 0 เสมอ
+
+## ตัวเลขดูแปลก / เคยลงรุ่นเก่าไว้
+
+ลงรุ่นก่อน 14 ก.ย. 2026 ไว้ → `total_tokens` ของ Claude ไม่รวม cache และรอบที่พิมพ์ `/model` กลางทางถูกตัดครึ่ง
+อัปเดตสคริปต์แล้วสั่งคำนวณ ledger ใหม่จาก transcript ได้เลย (backup ให้ก่อนเสมอ):
+
+```bash
+python3 ~/.claude/skills/agent-cost/scripts/capture.py --rebuild
+```
