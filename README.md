@@ -183,6 +183,8 @@ hook, dashboard (IDE sync), `backfill.py` และ `capture.py --rebuild` เ�
 ```bash
 L="$(python3 -c 'import sys,os;sys.path.insert(0,os.path.expanduser("~/.claude/skills/agent-cost/scripts"));import cost_paths;print(os.path.join(cost_paths.ledger_dir(),"ledger.jsonl"))')"
 jq -c '.prompt="" | .files_touched=[] | del(.cwd, .transcript, .ide_history)' "$L" > ~/Desktop/ledger-<ชื่อเรา>.jsonl
+# ใช้ Codex ด้วย: ต่อท้าย codex-ledger.jsonl ในไฟล์เดียวกัน (ไม่งั้นยอด Codex ไม่ไปถึงคนรวม)
+jq -c '.prompt="" | .files_touched=[] | del(.cwd, .transcript)' "$(dirname "$L")/codex-ledger.jsonl" >> ~/Desktop/ledger-<ชื่อเรา>.jsonl 2>/dev/null
 ```
 
 ไม่มี `jq`: `brew install jq` · ส่งทั้งไฟล์ได้ แต่ข้างในจะมี **prompt ที่พิมพ์ + path ไฟล์ในเครื่อง** ติดไปด้วย
@@ -280,30 +282,24 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
 
 ถ้าเปิด issue เรื่องตัวเลขหรือ hook ไม่ขึ้น แนบ output ของคำสั่ง `AGENT_COST_DEBUG=1` ข้างบนมาด้วยจะช่วยได้มาก — **ลบ path, ชื่อ repo และข้อความ prompt ออกก่อน** (ดู [ความเป็นส่วนตัว](#ความเป็นส่วนตัว--อ่านก่อนแชร์))
 
+## Codex (อ่านจาก rollout ในเครื่อง)
 
-## Codex (local rollout collector)
+Codex ไม่มี hook — `codex_capture.py` อ่าน rollout ที่ Codex เก็บไว้ในเครื่อง แล้วลง **`codex-ledger.jsonl`** (แยกจาก `ledger.jsonl`)
 
-`python3 scripts/codex_capture.py` imports completed turns for the current
-month. Use `--month YYYY-MM` for another month or `--watch` to poll every ten
-seconds. The dashboard runs this collector in a background thread and reads
-`codex-ledger.jsonl` alongside the existing ledger; `report.py --agent codex`
-selects these records. Existing CodeBuddy IDE synchronization stays unchanged.
+```bash
+S=~/.claude/skills/agent-cost/scripts
+python3 $S/codex_capture.py                  # รอบที่ทำเสร็จของเดือนนี้
+python3 $S/codex_capture.py --month 2026-08  # เดือนอื่น
+python3 $S/codex_capture.py --watch          # วนทุก 10 วิ (dashboard ทำให้เองอยู่แล้ว)
+```
 
-The collector reads `$CODEX_HOME/sessions` and `archived_sessions` (default
-`~/.codex`). It requires `token_usage_record` with response IDs and an explicit
-`task_complete`; older formats and interrupted turns are skipped. Response IDs
-are deduplicated per turn, and inherited records from another thread are excluded.
-Input excludes cache reads/writes; reasoning is already included in output and
-is not added again. Prompt capture follows the existing privacy configuration.
-Credit is unknown, and API estimates are not subscription billing amounts.
+- dashboard ดึงให้เองทุก 10 วิ และโชว์คอลัมน์ Codex **เฉพาะคนที่มีข้อมูล Codex** · `report.py --agent codex` กรองเฉพาะ Codex
+- อ่านจาก `$CODEX_HOME/sessions` และ `archived_sessions` (ดีฟอลต์ `~/.codex`)
+- นับเฉพาะรอบที่มี `token_usage_record` + `task_complete` — รอบที่ถูกยกเลิกกลางทาง / rollout รุ่นเก่า ข้าม
+- token นิยามเดียวกับแถวอื่น (input ไม่รวม cache, reasoning อยู่ใน output แล้ว) · **ไม่มี credit** ราคา API ใช้ดูมูลค่าเท่านั้น
+- เวลา (`ts`) แปลงเป็นเวลาท้องถิ่นเหมือนแถวอื่น — รอบดึก ๆ ลงวันถูก
+- ไม่แย่ง lock กับ Stop hook ของ Claude / CodeBuddy (ใช้ `codex-ledger.lock` ของตัวเอง แค่ตอนเขียน)
 
-Limitations: month selection follows rollout paths, so sessions started in a
-previous month require importing that month too. Model attribution uses the
-last turn context; mixed-model turns are not priced separately. Tool counts
-cover top-level calls only; file paths touched are unavailable. Local/subagent
-sessions may both appear. Timestamps may use UTC while other agents use local
-offsets. The rollout schema is observed locally, not a stable public API.
+ข้อจำกัด: เลือกเดือนตาม path ของ rollout (session ที่เริ่มเดือนก่อนต้อง `--month` เดือนนั้นด้วย) · model ใช้ตัวสุดท้ายของรอบ · นับเฉพาะ tool call ชั้นบน ไม่มีไฟล์ที่แตะ · รูปแบบ rollout เป็นของที่สังเกตได้ในเครื่อง ไม่ใช่ API ที่รับประกัน
 
-No `capture.py --rebuild` or `ide_sync.py --resync` is required. Re-run the Codex
-collector to refresh its separate ledger; do not rebuild it with capture.py.
-Tests: `python3 -m unittest discover -s tests -v`.
+ไม่ต้อง `--rebuild` / `--resync` — อยากคำนวณ Codex ใหม่ ลบ `codex-ledger.jsonl` แล้วรัน `codex_capture.py` ใหม่ · เทส: `python3 -m unittest discover -s tests -v`

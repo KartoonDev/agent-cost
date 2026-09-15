@@ -5,7 +5,7 @@
 :root{
   --bg:#f5f6f8; --surface:#ffffff; --sunk:#eceef2; --line:#dde1e7;
   --ink:#12151b; --ink-2:#4b5361; --ink-3:#7a8392;
-  --codex:#169b78; --claude:#eb6834; --cb:#2a78d6; --ide:#1baf7a;
+  --codex:#4a3aa7; --claude:#eb6834; --cb:#2a78d6; --ide:#1baf7a;
   --warn:#b26a00; --warn-bg:#fff4df; --crit:#c23b3b; --crit-bg:#fdecec; --ok:#1f7a4d; --ok-bg:#e6f4ec;
   --sans:"IBM Plex Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
@@ -14,14 +14,14 @@
   :root:not([data-theme="light"]){
     --bg:#101318; --surface:#181c23; --sunk:#12161c; --line:#2a303a;
     --ink:#eef1f5; --ink-2:#b3bac6; --ink-3:#848d9b;
-    --codex:#169b78; --claude:#d95926; --cb:#3987e5; --ide:#199e70;
+    --codex:#9085e9; --claude:#d95926; --cb:#3987e5; --ide:#199e70;
     --warn:#f0b249; --warn-bg:#2d2310; --crit:#f07c7c; --crit-bg:#2e1616; --ok:#5cc792; --ok-bg:#12281d;
   }
 }
 :root[data-theme="dark"]{
   --bg:#101318; --surface:#181c23; --sunk:#12161c; --line:#2a303a;
   --ink:#eef1f5; --ink-2:#b3bac6; --ink-3:#848d9b;
-  --codex:#169b78; --claude:#d95926; --cb:#3987e5; --ide:#199e70;
+  --codex:#9085e9; --claude:#d95926; --cb:#3987e5; --ide:#199e70;
   --warn:#f0b249; --warn-bg:#2d2310; --crit:#f07c7c; --crit-bg:#2e1616; --ok:#5cc792; --ok-bg:#12281d;
 }
 *{box-sizing:border-box}
@@ -37,7 +37,8 @@ header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;
 .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
 section{display:flex;flex-direction:column;gap:12px}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:18px}
-.duel{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.duel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.duel.three{grid-template-columns:repeat(3,minmax(0,1fr))}
 .side{padding:18px 20px;display:flex;flex-direction:column;gap:14px}
 .side+.side{border-left:1px solid var(--line)}
 .side-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
@@ -236,7 +237,10 @@ function renderDuel(){
   const subRows=CL.filter(r=>r.n_subagents), subTok=CL.reduce((t,r)=>t+(r.subagent_tokens||0),0);
   const clExtra = `<p class="split">subagent ${fmt(subRows.length)} รอบ · ${fM(subTok)} token (${(b.ctx+b.out)?fmt(subTok/(b.ctx+b.out)*100,0):0}% ของ token)</p>`;
   const cbName = cbSource==="cli" ? "CodeBuddy CLI" : cbSource==="ide" ? "CodeBuddy IDE" : "CodeBuddy";
-  $("#duel").innerHTML = side(cbName,"var(--cb)",a,cbBig,models(CB),cbExtra) + side("Claude Code","var(--claude)",b,clBig,clTag,clExtra) + side("Codex","var(--codex)",agg(CX),fM(agg(CX).ctx+agg(CX).out)+"<small>token</small>",models(CX),"<p class=split>Completed local turns · no billed credit data</p>");
+  // Codex only gets a column for people who actually use it.
+  const cx=agg(CX), codexSide = CX.length ? side("Codex","var(--codex)",cx,fM(cx.ctx+cx.out)+"<small>token</small>",models(CX),`<p class="split">รอบที่ทำเสร็จในเครื่อง · ไม่มีข้อมูล credit${cx.hasApi?` · มูลค่า API $${fmt(cx.api,2)}`:""}</p>`) : "";
+  $("#duel").classList.toggle("three", CX.length>0);
+  $("#duel").innerHTML = side(cbName,"var(--cb)",a,cbBig,models(CB),cbExtra) + side("Claude Code","var(--claude)",b,clBig,clTag,clExtra) + codexSide;
 }
 
 function claudeCost(){ const b=agg(CL); return planUsd ? planCost(CL).usd : (b.hasApi ? b.api : null); }
@@ -289,8 +293,9 @@ function renderCharts(){
   const cbSeries = f => [
     ...(cli.length ? [{name:"CodeBuddy CLI",color:"var(--cb)",get:g(by(cli,f))}] : []),
     ...(ide.length ? [{name:"CodeBuddy IDE",color:"var(--ide)",get:g(by(ide,f))}] : [])];
-  barChart($("#c-turns"), days, [...cbSeries(()=>1), {name:"Claude",color:"var(--claude)",get:g(by(CL,()=>1))}, {name:"Codex",color:"var(--codex)",get:g(by(CX,()=>1))}], v=>fmt(v), "รอบต่อวัน");
-  legend($("#l-turns"), [...cbSeries(()=>1), {name:"Claude",color:"var(--claude)"}, {name:"Codex",color:"var(--codex)"}]);
+  const cxSeries = CX.length ? [{name:"Codex",color:"var(--codex)",get:g(by(CX,()=>1))}] : [];
+  barChart($("#c-turns"), days, [...cbSeries(()=>1), {name:"Claude",color:"var(--claude)",get:g(by(CL,()=>1))}, ...cxSeries], v=>fmt(v), "รอบต่อวัน");
+  legend($("#l-turns"), [...cbSeries(()=>1), {name:"Claude",color:"var(--claude)"}, ...cxSeries]);
   const pd=planCost(CL).perDay;
   if(creditUsd && (planUsd || agg(CL).hasApi)){
     $("#c-cost-t").textContent = planUsd ? "จ่ายจริงต่อวัน (USD) · Claude = ค่าแพ็กเฉลี่ยรายวัน" : "ค่าใช้จ่ายต่อวัน (USD) · Claude = ราคา API";
@@ -341,6 +346,8 @@ function renderRepos(){
 
 let topAgent = store.get("ac-top") || "codebuddy";
 function renderTop(){
+  const cxBtn=document.querySelector('.seg button[data-a="codex"]'); if(cxBtn) cxBtn.hidden = !CX.length;
+  if(topAgent==="codex" && !CX.length) topAgent="codebuddy";
   document.querySelectorAll(".seg button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.a===topAgent)));
   const score = r => topAgent!=="codebuddy" ? (apiUsd(r) ?? tokAll(r)/1e9) : (r.credit||0);
   const rs=(topAgent==="codex"?CX:topAgent==="claude"?CL:CB).slice().sort((x,y)=>score(y)-score(x)).slice(0,12);

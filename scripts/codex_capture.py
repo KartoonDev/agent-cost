@@ -15,8 +15,18 @@ import time
 from cost_paths import ledger_dir, record_prompts, ledger_lock
 
 
+def local_iso(value):
+    """Rollouts stamp UTC; every other ledger row uses the local offset. Days are cut with
+    ts[:10], so a UTC stamp would put late-night turns on the wrong day or month."""
+    try:
+        return datetime.datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone().isoformat(timespec="seconds")
+    except (ValueError, TypeError, AttributeError):
+        return value
+
+
 def read_turns(path):
     turns = {}
+    prompts = record_prompts()   # reads the config file — once per rollout, not per event
     session = None
     cwd = ""
     active = None
@@ -59,7 +69,7 @@ def read_turns(path):
             turn = turns.get(active)
             if not turn:
                 continue
-            if kind == "event_msg" and p.get("type") == "user_message" and record_prompts():
+            if kind == "event_msg" and p.get("type") == "user_message" and prompts:
                 turn["prompt"] = " ".join((p.get("message") or "").split())[:400]
             if kind == "response_item" and p.get("type") in ("function_call", "custom_tool_call"):
                 call = p.get("call_id") or p.get("id")
@@ -83,7 +93,7 @@ def read_turns(path):
             except (ValueError, TypeError):
                 elapsed = None
         records.append({"turn_key": hashlib.sha1(f"codex:{session}:{tid}".encode()).hexdigest()[:16],
-            "agent": "codex", "session_id": session, "ts": turn["end"], "cwd": turn["cwd"],
+            "agent": "codex", "session_id": session, "ts": local_iso(turn["end"]), "cwd": turn["cwd"],
             "repo": os.path.basename(turn["cwd"].rstrip("/")), "prompt": turn["prompt"],
             "credit": None, "input_tokens": inp, "cache_read_tokens": cr, "cache_write_tokens": cw,
             "output_tokens": usage["output_tokens"], "total_tokens": inp + cr + cw + usage["output_tokens"],
@@ -101,34 +111,46 @@ class CodexCollector:
         self.cache = {}
 
     def sync(self):
-        # One writer per Codex ledger; Claude/CodeBuddy keep their existing file.
         self.target.parent.mkdir(parents=True, exist_ok=True)
-        with ledger_lock(str(self.target.parent)):
-            return self._sync()
+        # Parsing rollouts can take seconds; do it with no lock held. Then take a lock of
+        # our own (not .ledger.lock, which the Stop hook waits on) just to merge and write.
+        fresh, signatures = self._collect()
+        with ledger_lock(str(self.target.parent), name="codex-ledger.lock"):
+            count = self._merge(fresh)
+        self.cache.update(signatures)
+        return count
 
-    def _sync(self):
+    def _collect(self):
+        month = self.month or datetime.date.today().strftime("%Y-%m")
+        paths = list((self.home / "sessions" / month.replace("-", "/")).glob("**/*.jsonl"))
+        paths += list((self.home / "archived_sessions").glob(f"rollout-{month}-*.jsonl"))
+        fresh, signatures = [], {}
+        for path in paths:
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            signature = (stat.st_size, stat.st_mtime_ns)
+            if self.cache.get(str(path)) == signature:
+                continue
+            fresh += read_turns(path)
+            signatures[str(path)] = signature
+        return fresh, signatures
+
+    def _merge(self, fresh):
         rows = {}
         if self.target.exists():
-            for line in self.target.read_text().splitlines():
+            for line in self.target.read_text(encoding="utf-8").splitlines():
                 try:
                     row = json.loads(line)
                     rows[row["turn_key"]] = row
                 except (ValueError, KeyError):
                     continue
-        month = self.month or datetime.date.today().strftime("%Y-%m")
-        paths = list((self.home / "sessions" / month.replace("-", "/")).glob("**/*.jsonl"))
-        paths += list((self.home / "archived_sessions").glob(f"rollout-{month}-*.jsonl"))
         changed = False
-        for path in paths:
-            stat = path.stat()
-            signature = (stat.st_size, stat.st_mtime_ns)
-            if self.cache.get(str(path)) == signature:
-                continue
-            for row in read_turns(path):
-                if rows.get(row["turn_key"]) != row:
-                    rows[row["turn_key"]] = row
-                    changed = True
-            self.cache[str(path)] = signature
+        for row in fresh:
+            if rows.get(row["turn_key"]) != row:
+                rows[row["turn_key"]] = row
+                changed = True
         if changed:
             temp = self.target.with_suffix(".tmp")
             with temp.open("w", encoding="utf-8") as stream:

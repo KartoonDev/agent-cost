@@ -224,30 +224,9 @@ PY
 - ผลลัพธ์ผ่านเทส/รีวิวไหม — ledger ไม่รู้เรื่องคุณภาพ ต้องเอา PR/เทสมาประกอบเอง
 - `n_tool_calls` สูงผิดปกติ = วนหาของไม่เจอ มักแปลว่า context ไม่พอตั้งแต่แรก
 
+## Codex
 
-## Codex (local rollout collector)
-
-`python3 scripts/codex_capture.py` imports completed turns for the current
-month. Use `--month YYYY-MM` for another month or `--watch` to poll every ten
-seconds. The dashboard runs this collector in a background thread and reads
-`codex-ledger.jsonl` alongside the existing ledger; `report.py --agent codex`
-selects these records. Existing CodeBuddy IDE synchronization stays unchanged.
-
-The collector reads `$CODEX_HOME/sessions` and `archived_sessions` (default
-`~/.codex`). It requires `token_usage_record` with response IDs and an explicit
-`task_complete`; older formats and interrupted turns are skipped. Response IDs
-are deduplicated per turn, and inherited records from another thread are excluded.
-Input excludes cache reads/writes; reasoning is already included in output and
-is not added again. Prompt capture follows the existing privacy configuration.
-Credit is unknown, and API estimates are not subscription billing amounts.
-
-Limitations: month selection follows rollout paths, so sessions started in a
-previous month require importing that month too. Model attribution uses the
-last turn context; mixed-model turns are not priced separately. Tool counts
-cover top-level calls only; file paths touched are unavailable. Local/subagent
-sessions may both appear. Timestamps may use UTC while other agents use local
-offsets. The rollout schema is observed locally, not a stable public API.
-
-No `capture.py --rebuild` or `ide_sync.py --resync` is required. Re-run the Codex
-collector to refresh its separate ledger; do not rebuild it with capture.py.
-Tests: `python3 -m unittest discover -s tests -v`.
+ไม่มี hook — `scripts/codex_capture.py` อ่าน rollout ใน `$CODEX_HOME` (ดีฟอลต์ `~/.codex`) ลง `codex-ledger.jsonl` แยกไฟล์
+dashboard ดึงให้ทุก 10 วิ · `report.py` อ่านรวมให้เอง (`--agent codex`) · ไม่มี credit · ลงเฉพาะรอบที่ `task_complete`
+ใช้ `codex-ledger.lock` ของตัวเอง ไม่แย่ง `.ledger.lock` กับ Stop hook · `ts` เป็นเวลาท้องถิ่น
+รายละเอียด + ข้อจำกัด: README หัวข้อ Codex

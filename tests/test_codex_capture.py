@@ -1,3 +1,5 @@
+import datetime
+import fcntl
 import json
 from pathlib import Path
 import sys
@@ -50,7 +52,15 @@ class CaptureTests(unittest.TestCase):
         events = rollout()
         events[-1]["payload"]["completed_at"] = 1788489814
         self.write(events)
-        self.assertEqual(read_turns(self.path)[0]["ts"], "2026-09-04T02:43:34+00:00")
+        ts = read_turns(self.path)[0]["ts"]
+        self.assertEqual(datetime.datetime.fromisoformat(ts),
+                         datetime.datetime(2026, 9, 4, 2, 43, 34, tzinfo=datetime.timezone.utc))
+
+    def test_ts_uses_local_offset_like_other_ledger_rows(self):
+        self.write(rollout())
+        ts = read_turns(self.path)[0]["ts"]
+        local = datetime.datetime(2026, 9, 14, 10, 0, tzinfo=datetime.timezone.utc).astimezone()
+        self.assertEqual(ts, local.isoformat(timespec="seconds"))
 
     def test_incomplete_and_legacy_turns_are_skipped(self):
         self.write(rollout()[:-1])
@@ -78,6 +88,33 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(collector.sync(), 1)
         self.assertEqual(CodexCollector(home, directory, '2026-09').sync(), 1)
         self.assertEqual((directory / 'ledger.jsonl').read_text(), 'original\n')
+
+
+    def test_sync_does_not_hold_main_ledger_lock_while_parsing(self):
+        # capture.py (the Stop hook) takes .ledger.lock; parsing rollouts must never block it.
+        home = Path(self.tmp.name)
+        source = home / 'sessions/2026/09/14'
+        source.mkdir(parents=True)
+        self.path = source / 'rollout.jsonl'
+        self.write(rollout())
+        directory = home / 'data'
+        directory.mkdir()
+        seen = []
+
+        def probe(path):
+            with open(directory / '.ledger.lock', 'a') as fh:
+                try:
+                    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+                    seen.append('free')
+                except BlockingIOError:
+                    seen.append('held')
+            return read_turns(path)
+
+        with patch('codex_capture.read_turns', side_effect=probe):
+            self.assertEqual(CodexCollector(home, directory, '2026-09').sync(), 1)
+        self.assertEqual(seen, ['free'])
+        self.assertFalse((directory / '.ledger.lock').read_text())
 
 
 if __name__ == '__main__':
