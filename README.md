@@ -105,20 +105,63 @@ python3 $R --month 2026-09 --write    # เขียน 2026-09.md ลงข้�
 
 หรือถาม agent ตรง ๆ ว่า "เดือนนี้ใช้ credit ไปเท่าไหร่" — skill จะพาไปเอง
 
-ใช้แอป CodeBuddy IDE แต่ไม่ได้เปิด dashboard → ก่อนดู report สั่ง `python3 ~/.claude/skills/agent-cost/scripts/ide_sync.py`
+### CodeBuddy IDE (แอป desktop)
 
-### ย้อนเก็บของเก่า
+แอป IDE ไม่มี hook แต่เก็บ usage + credit ต่อรอบไว้ใน history ของมันเองในเครื่อง — `ide_sync.py` อ่านมาลง ledger
 
-hook จดเฉพาะรอบที่จบ **หลัง** ติดตั้ง ของก่อนหน้านั้นยังอยู่ในเครื่อง ดึงเข้า ledger ได้ด้วยคำสั่งเดียว
-(อ่าน Claude Code, CodeBuddy CLI และ CodeBuddy IDE ของเครื่องคนที่รัน — ใครรันก็ได้ของตัวเอง)
+| เปิด dashboard อยู่ | ไม่ได้เปิด dashboard |
+|---|---|
+| ดึงให้เองทุก ~3 วิ ไม่ต้องทำอะไร | ก่อนดู report สั่ง `python3 ~/.claude/skills/agent-cost/scripts/ide_sync.py` |
 
 ```bash
-python3 ~/.claude/skills/agent-cost/scripts/backfill.py --dry-run   # ดูก่อนว่าจะได้กี่รอบ
-python3 ~/.claude/skills/agent-cost/scripts/backfill.py             # เขียนจริง
-python3 ~/.claude/skills/agent-cost/scripts/capture.py --rebuild    # (ถ้าอยากได้ via: claude ของรอบเก่า)
+S=~/.claude/skills/agent-cost/scripts
+python3 $S/ide_sync.py --dry-run   # นับว่าจะเพิ่มกี่รอบ ไม่เขียน
+python3 $S/ide_sync.py             # เขียน
+python3 $S/ide_sync.py --watch     # ดึงวนทุก 3 วิ (ใช้แทน dashboard ได้)
 ```
 
-รันซ้ำได้ ไม่นับซ้ำกับที่ hook จดไว้แล้ว · `--since 2026-08-01` เอาเฉพาะช่วง · `--only claude|codebuddy|ide`
+- ลงเป็น `agent: "codebuddy"` + `source: "ide"` → **รวมยอดกับ CLI** · dashboard มีป้าย `IDE` ไว้แยก
+- ⚠️ **ดึง history ของ IDE ทั้งหมดที่อยู่ในเครื่อง ไม่มีวันเริ่ม** — ครั้งแรกอาจได้ย้อนไปหลายเดือน
+  (ไม่ได้ขึ้นกับ `backfill --since`) · report / dashboard กรองตามวันอยู่แล้ว ถ้าจะเทียบกับ Claude ให้เลือกช่วงเดียวกัน
+- รอบที่ IDE ยังทำงานไม่จบ ข้ามไว้ รอบหน้าค่อยเก็บ · รอบที่กดยกเลิกกลางทางยังนับ (credit ถูกหักจริง)
+- จำว่าไฟล์ history ไหนอ่านแล้วใน `.ide_sync.json` ข้าง ๆ ledger — ลบได้ถ้าอยากให้สแกนใหม่ (ไม่นับซ้ำ)
+- แอปเก็บ history ไว้ที่ `~/Library/Application Support` (macOS) · `%APPDATA%` (Windows) · `~/.config` (Linux)
+  ไม่เจอให้ชี้เอง: `CODEBUDDY_APPDATA=/path/to/appdata python3 $S/ide_sync.py`
+
+### ย้อนเก็บของเก่า (backfill)
+
+hook จดเฉพาะรอบที่จบ **หลัง** ติดตั้ง ของก่อนหน้านั้นยังอยู่ในเครื่อง ดึงเข้า ledger ได้ด้วยคำสั่งเดียว
+อ่าน transcript ของ Claude Code + CodeBuddy CLI และ history ของ CodeBuddy IDE **ของเครื่องคนที่รัน** — ใครรันก็ได้ของตัวเอง
+
+```bash
+S=~/.claude/skills/agent-cost/scripts
+L="$(python3 -c 'import sys,os;sys.path.insert(0,os.path.expanduser("~/.claude/skills/agent-cost/scripts"));import cost_paths;print(os.path.join(cost_paths.ledger_dir(),"ledger.jsonl"))')"
+
+python3 $S/backfill.py --dry-run --since 2026-08-01   # 1) ดูก่อนว่าจะได้กี่รอบ / กี่ token / กี่ credit
+cp "$L" "$L.bak-prebackfill"                          # 2) backup
+python3 $S/backfill.py --since 2026-08-01             # 3) เขียนจริง
+python3 $S/capture.py --rebuild                       # 4) (ออปชัน) เติม via: claude ให้รอบเก่า
+```
+
+| option | |
+|---|---|
+| `--since YYYY-MM-DD` | เอาเฉพาะตั้งแต่วันนี้ — **แนะนำให้ใส่** ไม่ใส่คือเอาทุกอย่างที่มีในเครื่อง |
+| `--only claude\|codebuddy\|ide` | เลือกแหล่ง ใส่ซ้ำได้ (`--only claude --only ide`) |
+| `--dry-run` | นับอย่างเดียว ไม่เขียน |
+
+- **รันซ้ำได้ ไม่นับซ้ำ** — ใช้ turn key เดียวกับ hook รอบที่ hook จดไว้แล้วข้าม
+- ข้ามรอบสุดท้ายของ transcript ที่เพิ่งมีการเขียนใน 10 นาที (อาจยังทำงานอยู่ ปล่อยให้ hook จดตอนจบ)
+- token ของ subagent รวมเข้ารอบแม่ให้เหมือน hook · `via: claude` ดูจาก history ไม่ได้ → ต้อง `--rebuild` ต่อ
+- **ใช้เวลาหลายนาที** ถ้ามี transcript เยอะ (ต้องอ่านทุกไฟล์) · เปิด agent / dashboard ทิ้งไว้ระหว่างรันได้
+- **ledger จะโตขึ้นมาก** (ตัวอย่างจริง: 3 สัปดาห์ของ Claude Code ≈ 1,900 รอบ) report ยังเร็วอยู่
+- **ข้อมูลแต่ละแหล่งเริ่มไม่พร้อมกัน** — เช่น CodeBuddy CLI เพิ่งเริ่มใช้ แต่ Claude มีย้อนหลังหลายเดือน
+  เวลาเทียบให้ใช้ `--since` ของ report หรือเลือกช่วงวันใน dashboard ให้ครอบช่วงที่มีทั้งสองฝั่ง
+- ใช้แพ็กเหมา Claude: ค่าแพ็กคิดตามวันที่มีข้อมูล → ย้อนไปช่วงที่ยังไม่ได้ใช้แพ็กนี้ ตัวเลขช่วงนั้นจะผิด ใส่ `--since` ตั้งแต่วันที่เริ่มแพ็กปัจจุบัน
+
+### เขียนพร้อมกันหลายตัวได้
+
+hook, dashboard (IDE sync), `backfill.py` และ `capture.py --rebuild` เขียน ledger พร้อมกันได้ —
+ทุกตัวถือ lock สั้น ๆ (`.ledger.lock`) ตอนเขียน และ `--rebuild` เก็บแถวที่เข้ามาระหว่างที่มันคำนวณให้ ไม่หาย
 
 ---
 
@@ -132,7 +175,7 @@ python3 ~/.claude/skills/agent-cost/scripts/capture.py --rebuild    # (ถ้า
 
 ```bash
 L="$(python3 -c 'import sys,os;sys.path.insert(0,os.path.expanduser("~/.claude/skills/agent-cost/scripts"));import cost_paths;print(os.path.join(cost_paths.ledger_dir(),"ledger.jsonl"))')"
-jq -c '.prompt="" | .files_touched=[] | del(.cwd, .transcript)' "$L" > ~/Desktop/ledger-<ชื่อเรา>.jsonl
+jq -c '.prompt="" | .files_touched=[] | del(.cwd, .transcript, .ide_history)' "$L" > ~/Desktop/ledger-<ชื่อเรา>.jsonl
 ```
 
 ไม่มี `jq`: `brew install jq` · ส่งทั้งไฟล์ได้ แต่ข้างในจะมี **prompt ที่พิมพ์ + path ไฟล์ในเครื่อง** ติดไปด้วย
@@ -165,7 +208,7 @@ python3 $R --ledger 'team/ledger-*.jsonl' --month 2026-09 --write    # เขี
 | credit | ✅ ของจริงจาก transcript | ✅ ของจริงจาก history ของ IDE | ❌ ไม่มี (ใช้ `pricing.json`) |
 | token / เวลา / tool / prompt | ✅ | ✅ | ✅ |
 | เก็บด้วย | Stop hook | dashboard / `ide_sync.py` | Stop hook |
-| ของก่อนติดตั้ง | `backfill.py` | `backfill.py` | `backfill.py` |
+| ของก่อนติดตั้ง | `backfill.py --since` | ดึงทั้งหมดอัตโนมัติ (ไม่มีวันเริ่ม) | `backfill.py --since` |
 | subagent (Agent tool) | — | — | ✅ รวมเข้ารอบที่เรียก |
 | ถูก Claude เรียกแบบ headless | ✅ ติด `via: claude` | — | ✅ ติด `via: claude` |
 
@@ -179,14 +222,17 @@ python3 $R --ledger 'team/ledger-*.jsonl' --month 2026-09 --write    # เขี
 
 ledger ไม่ถูกส่งไปไหนเอง อยู่ในเครื่องคนใช้ล้วน ๆ แต่ในนั้นมี **prompt ที่พิมพ์ + path ไฟล์ที่ agent แตะ + ชื่อ repo**
 
-- **อย่า commit ledger / `ledger.jsonl.bak-*` / report `.md` / `pricing.json` เข้า git** — โดยเฉพาะ repo ที่แชร์กัน
+- **อย่า commit ledger / `ledger.jsonl.bak-*` / report `.md` / `pricing.json` / `.ide_sync.json` เข้า git** — โดยเฉพาะ repo ที่แชร์กัน
   ถ้าเลือกที่เก็บไว้ใน git repo (เช่น wiki / notes) ใส่ `.gitignore` ก่อน:
   ```gitignore
   agent-cost/*.jsonl
   agent-cost/*.jsonl.*
   agent-cost/*.md
   agent-cost/pricing.json
+  agent-cost/.ide_sync.json*
+  agent-cost/.ledger.lock
   ```
+  (`.ide_sync.json` มี path โฟลเดอร์ในเครื่อง)
   ⚠️ เคยโดนมาแล้ว: `git rm --cached ledger.jsonl && git commit -- ledger.jsonl` จะ **เพิ่มไฟล์กลับเข้าไป**
   (commit แบบระบุ path เอาไฟล์ในเครื่องมาใส่) ให้ `git commit` เฉย ๆ แล้วเช็ค `git ls-files` ว่าว่าง
 - ไม่อยากให้จด prompt → `install.py --no-prompts` (มีผลกับรอบหลังจากนั้น) · รอบเก่าใช้ `jq` ตัดก่อนส่งตามด้านบน
@@ -216,4 +262,6 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
 - ไม่มี output เลย = hook ยังไม่เข้า → รัน `install.py` ใหม่แล้วดูบรรทัด `settings:` แล้วเปิด session ใหม่
 - dashboard ขึ้นแดง "ต่อ server ไม่ได้" = ปิด `dashboard.py` ไปแล้ว รันใหม่
 - ตัวเลขดูผิดหลังอัปเดต → `capture.py --rebuild`
+- ใช้ IDE แต่ไม่ขึ้น → `ide_sync.py --dry-run` ได้ 0 = หา history ไม่เจอ ลองชี้ `CODEBUDDY_APPDATA`
+- backfill แล้วตัวเลข Claude พุ่ง → ย้อนไปก่อนเริ่มแพ็กปัจจุบันหรือเปล่า เอา backup คืนแล้วรันใหม่ด้วย `--since`
 - hook พังยังไงก็ **ไม่ทำให้ agent สะดุด** สคริปต์ exit 0 เสมอ
