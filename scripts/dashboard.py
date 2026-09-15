@@ -17,6 +17,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cost_paths import ledger_dir
 import ide_sync
+from codex_capture import CodexCollector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(HERE, "dashboard.html")
@@ -44,7 +45,7 @@ def sync_ide():
 
 def paths():
     d = ledger_dir()
-    return os.path.join(d, "ledger.jsonl"), os.path.join(d, "pricing.json")
+    return os.path.join(d, "ledger.jsonl"), os.path.join(d, "pricing.json"), os.path.join(d, "codex-ledger.jsonl")
 
 
 def etag():
@@ -59,20 +60,21 @@ def etag():
 
 
 def snapshot():
-    ledger, pricing_path = paths()
+    ledger, pricing_path, codex_ledger = paths()
     rows = []
-    try:
-        with open(ledger, encoding="utf-8") as f:
-            for line in f:
-                try:
-                    r = json.loads(line)
-                except Exception:
-                    continue
-                slim = {k: r.get(k) for k in KEEP}
-                slim["prompt"] = (r.get("prompt") or "")[:160]
-                rows.append(slim)
-    except OSError:
-        pass
+    for source in (ledger, codex_ledger):
+        try:
+            with open(source, encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        r = json.loads(line)
+                    except Exception:
+                        continue
+                    slim = {k: r.get(k) for k in KEEP}
+                    slim["prompt"] = (r.get("prompt") or "")[:160]
+                    rows.append(slim)
+        except OSError:
+            pass
     try:
         with open(pricing_path, encoding="utf-8") as f:
             pricing = json.load(f)
@@ -125,6 +127,16 @@ def main():
     ap.add_argument("--port", type=int, default=int(os.environ.get("AGENT_COST_PORT", 8791)))
     ap.add_argument("--open", action="store_true", help="open the browser")
     args = ap.parse_args()
+    collector = CodexCollector()
+    stopped = threading.Event()
+    def collect_codex():
+        while not stopped.is_set():
+            try:
+                collector.sync()
+            except Exception as exc:
+                print("codex sync failed:", exc, file=sys.stderr, flush=True)
+            stopped.wait(10)
+    threading.Thread(target=collect_codex, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     url = f"http://127.0.0.1:{args.port}"
     print(f"agent-cost dashboard → {url}   (ledger: {paths()[0]})", flush=True)
@@ -134,6 +146,9 @@ def main():
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        stopped.set()
+        srv.server_close()
 
 
 if __name__ == "__main__":

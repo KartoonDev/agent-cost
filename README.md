@@ -279,3 +279,31 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
 วิธีส่ง PR + กติกา (สำคัญ: ห้ามมีข้อมูลส่วนตัว) อยู่ใน [CONTRIBUTING.md](CONTRIBUTING.md) — ทุก PR รีวิวก่อน merge
 
 ถ้าเปิด issue เรื่องตัวเลขหรือ hook ไม่ขึ้น แนบ output ของคำสั่ง `AGENT_COST_DEBUG=1` ข้างบนมาด้วยจะช่วยได้มาก — **ลบ path, ชื่อ repo และข้อความ prompt ออกก่อน** (ดู [ความเป็นส่วนตัว](#ความเป็นส่วนตัว--อ่านก่อนแชร์))
+
+
+## Codex (local rollout collector)
+
+`python3 scripts/codex_capture.py` imports completed turns for the current
+month. Use `--month YYYY-MM` for another month or `--watch` to poll every ten
+seconds. The dashboard runs this collector in a background thread and reads
+`codex-ledger.jsonl` alongside the existing ledger; `report.py --agent codex`
+selects these records. Existing CodeBuddy IDE synchronization stays unchanged.
+
+The collector reads `$CODEX_HOME/sessions` and `archived_sessions` (default
+`~/.codex`). It requires `token_usage_record` with response IDs and an explicit
+`task_complete`; older formats and interrupted turns are skipped. Response IDs
+are deduplicated per turn, and inherited records from another thread are excluded.
+Input excludes cache reads/writes; reasoning is already included in output and
+is not added again. Prompt capture follows the existing privacy configuration.
+Credit is unknown, and API estimates are not subscription billing amounts.
+
+Limitations: month selection follows rollout paths, so sessions started in a
+previous month require importing that month too. Model attribution uses the
+last turn context; mixed-model turns are not priced separately. Tool counts
+cover top-level calls only; file paths touched are unavailable. Local/subagent
+sessions may both appear. Timestamps may use UTC while other agents use local
+offsets. The rollout schema is observed locally, not a stable public API.
+
+No `capture.py --rebuild` or `ide_sync.py --resync` is required. Re-run the Codex
+collector to refresh its separate ledger; do not rebuild it with capture.py.
+Tests: `python3 -m unittest discover -s tests -v`.
