@@ -28,7 +28,7 @@ so every failure path exits 0. Set AGENT_COST_DEBUG=1 to see why nothing was wri
 import json, os, re, sys, time, datetime, hashlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cost_paths import load_config, ledger_dir, record_prompts
+from cost_paths import load_config, ledger_dir, record_prompts, ledger_lock
 
 CFG = load_config()
 LEDGER_DIR = ledger_dir(CFG)
@@ -452,19 +452,19 @@ def main():
     rec["via"], rec["parent_session"] = via_from_env(rec["agent"], session_id)
 
     os.makedirs(LEDGER_DIR, exist_ok=True)
-    # Cheap dedupe: turn keys only repeat within the same session, so the tail is enough.
-    if os.path.exists(LEDGER):
-        try:
-            with open(LEDGER, "rb") as f:
-                f.seek(max(0, os.path.getsize(LEDGER) - 200_000))
-                if rec["turn_key"].encode() in f.read():
-                    log("duplicate turn_key — skipped")
-                    return
-        except Exception:
-            pass
-
-    with open(LEDGER, "a", encoding="utf-8") as f:
-        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    with ledger_lock(LEDGER_DIR):
+        # Cheap dedupe: turn keys only repeat within the same session, so the tail is enough.
+        if os.path.exists(LEDGER):
+            try:
+                with open(LEDGER, "rb") as f:
+                    f.seek(max(0, os.path.getsize(LEDGER) - 200_000))
+                    if rec["turn_key"].encode() in f.read():
+                        log("duplicate turn_key — skipped")
+                        return
+            except Exception:
+                pass
+        with open(LEDGER, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     log("wrote", rec["turn_key"], rec["agent"], rec["credit"], rec["total_tokens"])
 
 
@@ -550,7 +550,10 @@ def rebuild():
     if not os.path.exists(LEDGER):
         print("no ledger at", LEDGER)
         return 1
-    rows = [json.loads(l) for l in open(LEDGER, encoding="utf-8") if l.strip()]
+    with open(LEDGER, "rb") as f:
+        raw = f.read()
+    read_upto = len(raw)          # rows appended after this are picked up under the lock below
+    rows = [json.loads(l) for l in raw.decode("utf-8").splitlines() if l.strip()]
     stamps = [ts_to_epoch(r.get("ts")) for r in rows if r.get("ts")]
     index = delegation_index((min(stamps) - 86400) if stamps else 0)
     cache, out, seen = {}, [], set()
@@ -598,13 +601,36 @@ def rebuild():
         out.append(new)
         stats["rebuilt"] += 1
 
-    backup = LEDGER + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    os.replace(LEDGER, backup)
-    tmp = LEDGER + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        for r in out:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    os.replace(tmp, LEDGER)
+    # Recomputing can take a while; writers kept appending meanwhile. Take the lock only
+    # for the swap: fold in whatever arrived after our read, then replace the file.
+    with ledger_lock(LEDGER_DIR, timeout=60):
+        late = []
+        with open(LEDGER, "rb") as f:
+            f.seek(read_upto)
+            for line in f.read().decode("utf-8", errors="replace").splitlines():
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if r.get("turn_key") not in seen:
+                    seen.add(r.get("turn_key"))
+                    late.append(r)
+        out += late
+        backup = LEDGER + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        os.replace(LEDGER, backup)
+        tmp = LEDGER + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            for r in out:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        os.replace(tmp, LEDGER)
+    # Belt and braces: if anything still slipped past, the next IDE sync rescans every
+    # history file instead of trusting its mtime cache (dedupe by turn_key keeps it safe).
+    try:
+        os.remove(os.path.join(LEDGER_DIR, ".ide_sync.json"))
+    except OSError:
+        pass
+    if late:
+        print(f"picked up {len(late)} row(s) written during rebuild")
     print(f"{len(rows)} rows → {len(out)} · rebuilt {stats['rebuilt']} · merged {stats['merged']} "
           f"· kept as-is {stats['kept']} · prompt changed {stats['relabeled']}\n"
           f"delegated (via claude) {stats['via']} · turns with subagents {stats['subagent_turns']}")

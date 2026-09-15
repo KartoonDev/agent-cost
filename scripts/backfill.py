@@ -28,6 +28,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import capture as C
 import ide_sync
+from cost_paths import ledger_lock
 
 LIVE_SEC = 600
 
@@ -100,7 +101,9 @@ def main():
     new = sorted((r for rows in found.values() for r in rows), key=lambda r: r["ts"])
     if new and not args.dry_run:
         os.makedirs(C.LEDGER_DIR, exist_ok=True)
-        with open(C.LEDGER, "a", encoding="utf-8") as f:
+        with ledger_lock(C.LEDGER_DIR), open(C.LEDGER, "a", encoding="utf-8") as f:
+            fresh = ide_sync.ledger_keys(C.LEDGER)
+            new = [r for r in new if r["turn_key"] not in fresh]
             for rec in new:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 

@@ -306,7 +306,7 @@ function renderFindings(){
   $("#findings").innerHTML = F.map(([lv,t,p])=>`<div class="finding"><span class="pill ${lv}">${{warn:"ระวัง",info:"ข้อสังเกต"}[lv]}</span><div><b>${t}</b><p>${p}</p></div></div>`).join("") || `<p class="foot">ยังไม่มีข้อสังเกต</p>`;
 }
 
-const agentCell = (a, r) => a==="claude" ? `<i class="dot" style="background:var(--claude)"></i>Claude` : a==="codebuddy" ? `<i class="dot" style="background:var(--cb)"></i>CodeBuddy${r&&r.via==="claude"?' <span class="pill info">Claude สั่ง</span>':""}` : `<i class="dot" style="background:var(--ink-3)"></i>${esc(a)}`;
+const agentCell = (a, r) => a==="claude" ? `<i class="dot" style="background:var(--claude)"></i>Claude` : a==="codebuddy" ? `<i class="dot" style="background:var(--cb)"></i>CodeBuddy${r&&r.source==="ide"?' <span class="pill info">IDE</span>':""}${r&&r.via==="claude"?' <span class="pill info">Claude สั่ง</span>':""}` : `<i class="dot" style="background:var(--ink-3)"></i>${esc(a)}`;
 const costCell = r => r.agent==="codebuddy" ? `${fmt(r.credit,2)} cr` : (apiUsd(r)!=null ? `<span title="มูลค่าราคา API">$${fmt(apiUsd(r),2)}</span>` : "—");
 
 function renderLatest(){

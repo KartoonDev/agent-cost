@@ -27,7 +27,7 @@ import datetime, glob, hashlib, json, os, re, sys, time, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from cost_paths import ledger_dir, record_prompts
+from cost_paths import ledger_dir, record_prompts, ledger_lock
 
 USAGE_V = 2  # same token definition as capture.py
 PATH_RE = re.compile(r"((?:/Users|/home)/[^\s\"'\\<>`]+|[A-Za-z]:\\\\[^\s\"'<>`]+)")
@@ -223,10 +223,10 @@ def sync(dry_run=False, since=None):
     if not changed:
         return []
 
-    seen = ledger_keys(ledger)
     paths, names = known_workspaces()
     prompts = record_prompts()
     new = []
+    seen = ledger_keys(ledger)
     for f in sorted(changed):
         for rec in records(f, seen, paths, names, prompts, since):
             seen.add(rec["turn_key"])
@@ -237,9 +237,13 @@ def sync(dry_run=False, since=None):
     new.sort(key=lambda r: r["ts"])
     if new:
         os.makedirs(d, exist_ok=True)
-        with open(ledger, "a", encoding="utf-8") as fh:
-            for rec in new:
-                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        with ledger_lock(d):
+            # Re-check under the lock: a rebuild may have swapped the file since we read keys.
+            fresh = ledger_keys(ledger)
+            new = [r for r in new if r["turn_key"] not in fresh]
+            with open(ledger, "a", encoding="utf-8") as fh:
+                for rec in new:
+                    fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
     if not since:
         state.update(changed)
         os.makedirs(d, exist_ok=True)

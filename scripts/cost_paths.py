@@ -38,3 +38,50 @@ def record_prompts(cfg=None):
     if cfg is None:
         cfg = load_config()
     return bool(cfg.get("record_prompts", True))
+
+
+class ledger_lock:
+    """Short exclusive lock around every write to ledger.jsonl.
+
+    Writers: the Stop hook (capture.py), ide_sync.py (also run by dashboard.py every
+    few seconds), backfill.py, and capture.py --rebuild, which swaps the whole file.
+    Without it, a row appended while rebuild is replacing the file is silently lost.
+
+    Never blocks forever: after `timeout` seconds the caller proceeds unlocked,
+    because a hook that hangs would stall the agent. No-op where fcntl is missing.
+    """
+
+    def __init__(self, ledger_dir_path, timeout=20.0):
+        self.path = os.path.join(ledger_dir_path, ".ledger.lock")
+        self.timeout = timeout
+        self.fh = None
+
+    def __enter__(self):
+        try:
+            import fcntl, time
+        except ImportError:
+            return self
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            self.fh = open(self.path, "a")
+            end = time.time() + self.timeout
+            while True:
+                try:
+                    fcntl.flock(self.fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return self
+                except BlockingIOError:
+                    if time.time() >= end:
+                        return self
+                    time.sleep(0.1)
+        except OSError:
+            return self
+
+    def __exit__(self, *exc):
+        if self.fh:
+            try:
+                import fcntl
+                fcntl.flock(self.fh, fcntl.LOCK_UN)
+            except Exception:
+                pass
+            self.fh.close()
+        return False

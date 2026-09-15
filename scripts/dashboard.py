@@ -22,7 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(HERE, "dashboard.html")
 KEEP = ("turn_key", "agent", "session_id", "ts", "repo", "credit", "input_tokens", "output_tokens",
         "cache_read_tokens", "cache_write_tokens", "elapsed_sec", "model", "n_tool_calls",
-        "via", "n_subagents", "subagent_tokens")
+        "via", "n_subagents", "subagent_tokens", "source")
 
 
 _ide = {"at": 0.0, "lock": threading.Lock()}
