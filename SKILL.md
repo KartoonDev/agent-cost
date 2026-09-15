@@ -182,6 +182,10 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
 - `repo` — โฟลเดอร์ใน history คือ md5 ของ path workspace ยืนยันด้วยการ hash path ที่เจอใน
   `workspaceStorage` / ข้อความ ถ้าหาไม่เจอใช้ชื่อจากชื่อไฟล์ log ของ extension ไม่งั้นเป็น `?`
 - `elapsed_sec` = ข้อความสุดท้ายของ request − `startedAt`
+- request ที่ usage เป็น 0 ทั้งหมด: ไม่มีข้อความ assistant/tool → ข้าม (ไม่มีอะไรเกิดขึ้น) ·
+  มีคำตอบแต่ไม่ถูกคิดเงิน หรือ model ขึ้นต้น `custom` → model ที่ตั้งเอง → `agent: "codebuddy-custom"`, `credit: null`
+- `repo` ของ `~/CodeBuddy/<14 หลัก>` และ `~/CodeBuddy` เอง → `codebuddy-chat` · `automation-<14 หลัก>` → `codebuddy-automation`
+- `ide_sync.py --resync` ลบแถว `source: "ide"` ทั้งหมด + ลบ `.ide_sync.json` แล้วอ่านใหม่ (backup ก่อน ถือ ledger lock)
 - จำ mtime ของ `index.json` ไว้ใน `<LEDGER_DIR>/.ide_sync.json` — ไฟล์ไม่เปลี่ยนไม่อ่านซ้ำ
   ลบไฟล์นี้ได้ถ้าอยากให้สแกนใหม่หมด (ไม่นับซ้ำเพราะ dedupe ด้วย `turn_key`)
 

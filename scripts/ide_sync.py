@@ -4,6 +4,7 @@
     python3 ide_sync.py            # append every finished IDE request not yet in the ledger
     python3 ide_sync.py --dry-run  # count only
     python3 ide_sync.py --watch    # keep syncing every 3 s (dashboard.py already does this itself)
+    python3 ide_sync.py --resync   # drop all IDE rows and re-read history with current rules (backs up first)
 
 The IDE never fires the Stop hook, but it does keep per-request usage on disk:
 
@@ -116,6 +117,21 @@ def resolve_path(ws, msgs, paths):
     return ""
 
 
+# ~/CodeBuddy/<yyyymmddhhmmss> is the scratch folder the IDE creates for a chat with no project open.
+SCRATCH_RE = re.compile(r"^(automation-)?\d{14}$")
+
+
+def repo_label(cwd, fallback):
+    name = os.path.basename(cwd) if cwd else fallback
+    parent = os.path.basename(os.path.dirname(cwd)) if cwd else ""
+    if cwd and name.lower() == "codebuddy" and os.path.dirname(cwd) == os.path.expanduser("~"):
+        return "codebuddy-chat"   # a chat opened on the ~/CodeBuddy root itself
+    m = SCRATCH_RE.match(name or "")
+    if m and (parent == "CodeBuddy" or not cwd):
+        return "codebuddy-automation" if m.group(1) else "codebuddy-chat"
+    return name
+
+
 def parse_at(s):
     try:
         return datetime.datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
@@ -162,20 +178,28 @@ def records(index_path, seen, paths, names, prompts, since=None):
         elapsed = round(max(stamps) - start / 1000, 1) if stamps else None
         cwd = resolve_path(ws, msgs, paths)
 
+        metered = bool(u.get("credit")) or any(u.get(k) for k in ("inputTokens", "outputTokens", "totalTokens"))
+        answered = any(m["role"] in ("assistant", "tool") for m in msgs)
+        if not metered and not answered:
+            continue   # nothing ran and nothing was billed — not a turn
+        # A custom / local model (e.g. "custom-local:qwen…") runs outside CodeBuddy's billing, so the
+        # IDE records zero usage even when the agent did real work. Keep the turn, but out of the
+        # codebuddy bucket so it can't drag credit-per-turn down.
+        custom = (model or "").startswith("custom") or not metered
         # IDE inputTokens include cache hits and writes, like the CLI's prompt_tokens.
         cache_read, cache_write = u.get("cacheTokens") or 0, u.get("cachedWriteTokens") or 0
         inp = max(0, (u.get("inputTokens") or 0) - cache_read - cache_write)
         out = u.get("outputTokens") or 0
         yield {
             "turn_key": turn_key(req["id"]),
-            "agent": "codebuddy",
+            "agent": "codebuddy-custom" if custom else "codebuddy",
             "source": "ide",
             "session_id": os.path.basename(conv),
             "ts": started.isoformat(timespec="seconds"),
             "cwd": cwd,
-            "repo": os.path.basename(cwd) if cwd else names.get(ws, "?"),
+            "repo": repo_label(cwd, names.get(ws, "?")),
             "prompt": (" ".join(text_of(users[0]).split())[:400] if users else "") if prompts else "",
-            "credit": u.get("credit"),
+            "credit": None if custom else u.get("credit"),
             "input_tokens": inp,
             "output_tokens": out,
             "cache_read_tokens": cache_read,
@@ -254,6 +278,34 @@ def sync(dry_run=False, since=None):
     return new
 
 
+def resync():
+    """Drop every IDE row and read the history again with the current rules (backs up first)."""
+    d = ledger_dir()
+    ledger = os.path.join(d, "ledger.jsonl")
+    with ledger_lock(d, timeout=60):
+        try:
+            with open(ledger, encoding="utf-8") as fh:
+                lines = fh.readlines()
+        except OSError:
+            lines = []
+        keep = [l for l in lines if '"source": "ide"' not in l and '"source":"ide"' not in l]
+        backup = ledger + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        if lines:
+            with open(backup, "w", encoding="utf-8") as fh:
+                fh.writelines(lines)
+        tmp = ledger + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.writelines(keep)
+        os.replace(tmp, ledger)
+    try:
+        os.remove(os.path.join(d, ".ide_sync.json"))
+    except OSError:
+        pass
+    new = sync()
+    print(f"removed {len(lines) - len(keep)} IDE row(s), re-added {len(new)} · backup: {backup}")
+    return 0
+
+
 def main():
     argv = sys.argv[1:]
     if "--watch" in argv:
@@ -270,6 +322,8 @@ def main():
         except KeyboardInterrupt:
             pass
         return
+    if "--resync" in argv:
+        return resync()
     dry = "--dry-run" in argv
     new = sync(dry_run=dry)
     print(f"{'would add' if dry else 'added'} {len(new)} CodeBuddy IDE turn(s)")

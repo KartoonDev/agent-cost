@@ -125,6 +125,12 @@ python3 $S/ide_sync.py --watch     # ดึงวนทุก 3 วิ (ใช�
 - ⚠️ **ดึง history ของ IDE ทั้งหมดที่อยู่ในเครื่อง ไม่มีวันเริ่ม** — ครั้งแรกอาจได้ย้อนไปหลายเดือน
   (ไม่ได้ขึ้นกับ `backfill --since`) · report / dashboard กรองตามวันอยู่แล้ว ถ้าจะเทียบกับ Claude ให้เลือกช่วงเดียวกัน
 - รอบที่ IDE ยังทำงานไม่จบ ข้ามไว้ รอบหน้าค่อยเก็บ · รอบที่กดยกเลิกกลางทางยังนับ (credit ถูกหักจริง)
+- request ที่ไม่มีคำตอบและไม่ถูกคิด credit (ส่งแล้วไม่มีอะไรเกิดขึ้น) **ข้าม ไม่ลง ledger**
+- ใช้ **model ที่ตั้งเองใน IDE** (เช่น qwen ผ่าน gateway) → IDE ไม่จด usage ให้ ลงเป็น `agent: "codebuddy-custom"`
+  นับจำนวนรอบได้แต่ไม่มี credit/token และ **ไม่ปนยอด CodeBuddy**
+- chat ที่ไม่ได้เปิดโปรเจกต์ (IDE สร้างโฟลเดอร์ `~/CodeBuddy/<วันเวลา>` ให้) รวมเป็น repo `codebuddy-chat`
+  (automation เป็น `codebuddy-automation`)
+- เคย sync ด้วยรุ่นเก่าไว้ → `python3 $S/ide_sync.py --resync` ลบแถว IDE ทั้งหมดแล้วอ่าน history ใหม่ (backup ให้ก่อน)
 - จำว่าไฟล์ history ไหนอ่านแล้วใน `.ide_sync.json` ข้าง ๆ ledger — ลบได้ถ้าอยากให้สแกนใหม่ (ไม่นับซ้ำ)
 - แอปเก็บ history ไว้ที่ `~/Library/Application Support` (macOS) · `%APPDATA%` (Windows) · `~/.config` (Linux)
   ไม่เจอให้ชี้เอง: `CODEBUDDY_APPDATA=/path/to/appdata python3 $S/ide_sync.py`
