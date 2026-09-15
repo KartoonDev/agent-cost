@@ -83,14 +83,40 @@ def plan_cost(rows, plan):
     return usd_total, first, last, (last - first).days + 1
 
 
-def real_cost_section(rows, pricing):
-    """What each agent really cost: plan fee pro-rated, or credits (× price if known)."""
+def surface(r):
+    """Row label that splits CodeBuddy by where it ran: CLI (Stop hook) or IDE (ide_sync)."""
+    ag = r.get("agent", "?")
+    if ag == "codebuddy":
+        return "codebuddy ide" if r.get("source") == "ide" else "codebuddy cli"
+    return ag
+
+
+def base_agent(label):
+    return label.split(" ", 1)[0]
+
+
+def grouped(rows):
+    """{label: rows} in display order, plus a `codebuddy (รวม)` total when both surfaces are present."""
     by = defaultdict(list)
     for r in rows:
-        by[r.get("agent", "?")].append(r)
+        by[surface(r)].append(r)
+    out = {k: by[k] for k in sorted(by)}
+    if "codebuddy cli" in out and "codebuddy ide" in out:
+        merged = {}
+        for k, v in out.items():
+            merged[k] = v
+            if k == "codebuddy ide":
+                merged["codebuddy (รวม)"] = out["codebuddy cli"] + out["codebuddy ide"]
+        out = merged
+    return out
+
+
+def real_cost_section(rows, pricing):
+    """What each agent really cost: plan fee pro-rated, or credits (× price if known)."""
+    by = grouped(rows)
     lines = []
-    for ag in sorted(by):
-        grp, plan = by[ag], plan_of(pricing, ag)
+    for ag in by:
+        grp, plan = by[ag], plan_of(pricing, base_agent(ag))
         a = agg(grp, pricing)
         mtok = (a["tok"] or 0) / 1e6
         if plan.get("usd_per_month"):
@@ -196,6 +222,8 @@ def load_one(path, owner, args, seen):
                 continue
             if args.agent and r.get("agent") != args.agent:
                 continue
+            if args.source and r.get("agent") == "codebuddy" and (r.get("source") == "ide") != (args.source == "ide"):
+                continue
             if args.owner and r["_owner"] != args.owner:
                 continue
             rows.append(r)
@@ -223,12 +251,10 @@ def agg(rows, pricing):
 
 
 def summary_table(rows, pricing):
-    by = defaultdict(list)
-    for r in rows:
-        by[r.get("agent", "?")].append(r)
+    by = grouped(rows)
     out = ["| Agent | รอบ | Credit | Token รวม | Output tok | เวลารวม | เฉลี่ย/รอบ | Tool calls | USD ราคา API |",
            "|---|--:|--:|--:|--:|--:|--:|--:|--:|"]
-    for ag in sorted(by):
+    for ag in by:
         a = agg(by[ag], pricing)
         avg = f"{a['sec']/a['turns']:.1f}s" if a["turns"] else "—"
         out.append(
@@ -249,7 +275,7 @@ def detail_table(rows, pricing, limit=200):
         out.append(
             f"| {(r.get('ts') or '')[:16].replace('T',' ')} |"
             + (f" {r.get('_owner','')} |" if multi else "")
-            + f" {r.get('agent','')} "
+            + f" {surface(r)} "
             f"| {r.get('repo','')} | {prompt} | {r.get('credit') if r.get('credit') is not None else '—'} "
             f"| {fmt(r.get('total_tokens',0))} | {el} | {r.get('n_tool_calls',0)} "
             f"| {len(r.get('files_touched') or [])} |"
@@ -261,6 +287,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--month"); ap.add_argument("--since"); ap.add_argument("--until")
     ap.add_argument("--repo"); ap.add_argument("--agent", choices=["codebuddy", "claude"])
+    ap.add_argument("--source", choices=["cli", "ide"], help="CodeBuddy เฉพาะ CLI หรือ IDE")
     ap.add_argument("--compare", action="store_true")
     ap.add_argument("--ledger", nargs="+", metavar="PATH",
                     help="อ่าน ledger จากไฟล์/glob อื่น เช่น --ledger 'team/ledger-*.jsonl' "
@@ -297,7 +324,7 @@ def main():
     if args.compare:
         by = defaultdict(lambda: defaultdict(list))
         for r in rows:
-            by[r.get("repo", "?")][r.get("agent", "?")].append(r)
+            by[r.get("repo", "?")][surface(r)].append(r)
         md += ["## แยกตาม repo", "", "| Repo | Agent | รอบ | Credit | Token | เวลารวม |", "|---|---|--:|--:|--:|--:|"]
         for repo in sorted(by):
             for ag in sorted(by[repo]):
@@ -311,7 +338,7 @@ def main():
     if args.by_owner or len(owners) > 1:
         by = defaultdict(lambda: defaultdict(list))
         for r in rows:
-            by[r["_owner"]][r.get("agent", "?")].append(r)
+            by[r["_owner"]][surface(r)].append(r)
         md += ["## แยกตามคน", "", "| คน | Agent | รอบ | Credit | Token | เวลารวม | Repo ที่แตะ |",
                "|---|---|--:|--:|--:|--:|---|"]
         for who in sorted(by):
