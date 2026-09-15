@@ -5,7 +5,7 @@
 :root{
   --bg:#f5f6f8; --surface:#ffffff; --sunk:#eceef2; --line:#dde1e7;
   --ink:#12151b; --ink-2:#4b5361; --ink-3:#7a8392;
-  --claude:#eb6834; --cb:#2a78d6;
+  --claude:#eb6834; --cb:#2a78d6; --ide:#1baf7a;
   --warn:#b26a00; --warn-bg:#fff4df; --crit:#c23b3b; --crit-bg:#fdecec; --ok:#1f7a4d; --ok-bg:#e6f4ec;
   --sans:"IBM Plex Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
@@ -14,14 +14,14 @@
   :root:not([data-theme="light"]){
     --bg:#101318; --surface:#181c23; --sunk:#12161c; --line:#2a303a;
     --ink:#eef1f5; --ink-2:#b3bac6; --ink-3:#848d9b;
-    --claude:#d95926; --cb:#3987e5;
+    --claude:#d95926; --cb:#3987e5; --ide:#199e70;
     --warn:#f0b249; --warn-bg:#2d2310; --crit:#f07c7c; --crit-bg:#2e1616; --ok:#5cc792; --ok-bg:#12281d;
   }
 }
 :root[data-theme="dark"]{
   --bg:#101318; --surface:#181c23; --sunk:#12161c; --line:#2a303a;
   --ink:#eef1f5; --ink-2:#b3bac6; --ink-3:#848d9b;
-  --claude:#d95926; --cb:#3987e5;
+  --claude:#d95926; --cb:#3987e5; --ide:#199e70;
   --warn:#f0b249; --warn-bg:#2d2310; --crit:#f07c7c; --crit-bg:#2e1616; --ok:#5cc792; --ok-bg:#12281d;
 }
 *{box-sizing:border-box}
@@ -101,6 +101,9 @@ code{font-family:var(--mono);font-size:12px;background:var(--sunk);padding:1px 5
 .field select{font-family:var(--sans);font-size:14px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
 .field select:focus-visible{outline:2px solid var(--cb);outline-offset:2px}
 .split{margin:0;font-size:12px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:10px}
+.split .sw{width:8px;height:8px;margin-right:4px}
+.split .sep{color:var(--line);margin:0 6px}
+.chart-legend{margin-top:8px;font-size:12px;flex-wrap:wrap}
 .split b{font-family:var(--mono);font-weight:600;color:var(--ink)}
 tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
 </style>
@@ -114,7 +117,7 @@ tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
   </div>
   <div class="head-r">
     <div class="live" id="live" role="status"><i class="pulse"></i><span id="live-t">กำลังโหลด…</span></div>
-    <div class="legend"><span><i class="sw" style="background:var(--cb)"></i>CodeBuddy</span><span><i class="sw" style="background:var(--claude)"></i>Claude</span></div>
+    <div class="legend"><span><i class="sw" style="background:var(--cb)"></i>CodeBuddy CLI</span><span><i class="sw" style="background:var(--ide)"></i>CodeBuddy IDE</span><span><i class="sw" style="background:var(--claude)"></i>Claude</span></div>
   </div>
 </header>
 
@@ -127,6 +130,7 @@ tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
       <label class="field">ราคา 1 credit (USD)<input id="cpx" type="number" step="0.001" min="0" placeholder="ยังไม่รู้"></label>
       <label class="field">แพ็ก Claude (USD/เดือน)<input id="plan" type="number" step="1" min="0" placeholder="ไม่มี"></label>
       <label class="field">เฉลี่ยค่าแพ็ก<select id="basis"><option value="calendar">ทุกวันในปฏิทิน</option><option value="20">วันที่ใช้ ÷ 20 วัน/เดือน</option><option value="22">วันที่ใช้ ÷ 22 วัน/เดือน</option></select></label>
+      <label class="field">CodeBuddy<select id="cbsrc"><option value="all">CLI + IDE</option><option value="cli">CLI เท่านั้น</option><option value="ide">IDE เท่านั้น</option></select></label>
       <label class="field">ช่วงวัน<select id="span"><option value="0">ทั้งหมด</option><option value="1">วันนี้</option><option value="7">7 วัน</option><option value="30">30 วัน</option></select></label>
     </div>
   </div>
@@ -136,8 +140,8 @@ tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
 <section>
   <h2>รายวัน</h2>
   <div class="charts">
-    <div class="panel chart"><div class="eyebrow" style="margin-bottom:8px">รอบต่อวัน</div><div id="c-turns"></div></div>
-    <div class="panel chart"><div class="eyebrow" style="margin-bottom:8px" id="c-cost-t">ค่าใช้จ่ายต่อวัน</div><div id="c-cost"></div></div>
+    <div class="panel chart"><div class="eyebrow" style="margin-bottom:8px">รอบต่อวัน</div><div id="c-turns"></div><div class="legend chart-legend" id="l-turns"></div></div>
+    <div class="panel chart"><div class="eyebrow" style="margin-bottom:8px" id="c-cost-t">ค่าใช้จ่ายต่อวัน</div><div id="c-cost"></div><div class="legend chart-legend" id="l-cost"></div></div>
   </div>
 </section>
 
@@ -181,7 +185,7 @@ const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">"
 const store = { get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,v)}catch(e){}} };
 const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
-let ALL = [], PRICING = {}, creditUsd = null, planUsd = null, planBasis = "calendar", spanDays = 0, newKeys = new Set(), knownKeys = null;
+let cbSource = "all", ALL = [], PRICING = {}, creditUsd = null, planUsd = null, planBasis = "calendar", spanDays = 0, newKeys = new Set(), knownKeys = null;
 let ROWS = [], CB = [], CL = [];
 
 const ctx = r => (r.input_tokens||0)+(r.cache_read_tokens||0)+(r.cache_write_tokens||0);
@@ -226,10 +230,13 @@ function renderDuel(){
   const clBig = planUsd ? `$${fmt(pc.usd,2)}<small>${planBasis==="calendar"?"จ่ายจริง · "+pc.n+" วันปฏิทิน":"ใช้ "+pc.n+" วัน × $"+fmt(planUsd/Number(planBasis),2)}</small>` : (b.hasApi ? `$${fmt(b.api,2)}<small>ราคา API</small>` : `—<small>ใส่แพ็กหรือราคา API</small>`);
   const clTag = (planUsd ? `${plan.name||"แพ็ก"} $${fmt(planUsd,0)}/เดือน` : models(CL)) + (planUsd&&b.hasApi ? ` · มูลค่า API $${fmt(b.api,0)}` : "");
   const viaRows=CB.filter(r=>r.via==="claude"), viaCr=viaRows.reduce((t,r)=>t+(r.credit||0),0);
-  const cbExtra = `<p class="split">Claude สั่งให้ทำ <b>${fmt(viaRows.length)}</b> รอบ · ${fmt(viaCr,1)} credit (${a.credit?fmt(viaCr/a.credit*100,0):0}%) — ที่เหลือพิมพ์สั่งเอง</p>`;
+  const ide=CB.filter(r=>r.source==="ide"), cli=CB.filter(r=>r.source!=="ide"), sumCr=rs=>rs.reduce((t,r)=>t+(r.credit||0),0);
+  const srcLine = `<p class="split"><i class="sw" style="background:var(--cb)"></i>CLI <b>${fmt(cli.length)}</b> รอบ · ${fmt(sumCr(cli),1)} cr <span class="sep">|</span> <i class="sw" style="background:var(--ide)"></i>IDE <b>${fmt(ide.length)}</b> รอบ · ${fmt(sumCr(ide),1)} cr${a.credit?` (${fmt(sumCr(ide)/a.credit*100,0)}%)`:""}</p>`;
+  const cbExtra = srcLine + `<p class="split">Claude สั่งให้ทำ <b>${fmt(viaRows.length)}</b> รอบ · ${fmt(viaCr,1)} credit (${a.credit?fmt(viaCr/a.credit*100,0):0}%) — ที่เหลือพิมพ์สั่งเอง</p>`;
   const subRows=CL.filter(r=>r.n_subagents), subTok=CL.reduce((t,r)=>t+(r.subagent_tokens||0),0);
   const clExtra = `<p class="split">subagent ${fmt(subRows.length)} รอบ · ${fM(subTok)} token (${(b.ctx+b.out)?fmt(subTok/(b.ctx+b.out)*100,0):0}% ของ token)</p>`;
-  $("#duel").innerHTML = side("CodeBuddy","var(--cb)",a,cbBig,models(CB),cbExtra) + side("Claude Code","var(--claude)",b,clBig,clTag,clExtra);
+  const cbName = cbSource==="cli" ? "CodeBuddy CLI" : cbSource==="ide" ? "CodeBuddy IDE" : "CodeBuddy";
+  $("#duel").innerHTML = side(cbName,"var(--cb)",a,cbBig,models(CB),cbExtra) + side("Claude Code","var(--claude)",b,clBig,clTag,clExtra);
 }
 
 function claudeCost(){ const b=agg(CL); return planUsd ? planCost(CL).usd : (b.hasApi ? b.api : null); }
@@ -277,17 +284,26 @@ function renderCharts(){
   const days=[...new Set(ROWS.map(r=>r.ts.slice(0,10)))].sort();
   const by=(rs,f)=>{ const m=new Map(); rs.forEach(r=>{const d=r.ts.slice(0,10); m.set(d,(m.get(d)||0)+f(r));}); return m; };
   const g=m=>d=>m.get(d);
-  barChart($("#c-turns"), days, [{name:"CodeBuddy",color:"var(--cb)",get:g(by(CB,()=>1))},{name:"Claude",color:"var(--claude)",get:g(by(CL,()=>1))}], v=>fmt(v), "รอบต่อวัน");
+  const cli=CB.filter(r=>r.source!=="ide"), ide=CB.filter(r=>r.source==="ide");
+  // One series per CodeBuddy surface that has rows in range, so an IDE-only view has no empty CLI bars.
+  const cbSeries = f => [
+    ...(cli.length ? [{name:"CodeBuddy CLI",color:"var(--cb)",get:g(by(cli,f))}] : []),
+    ...(ide.length ? [{name:"CodeBuddy IDE",color:"var(--ide)",get:g(by(ide,f))}] : [])];
+  barChart($("#c-turns"), days, [...cbSeries(()=>1), {name:"Claude",color:"var(--claude)",get:g(by(CL,()=>1))}], v=>fmt(v), "รอบต่อวัน");
+  legend($("#l-turns"), [...cbSeries(()=>1), {name:"Claude",color:"var(--claude)"}]);
   const pd=planCost(CL).perDay;
   if(creditUsd && (planUsd || agg(CL).hasApi)){
     $("#c-cost-t").textContent = planUsd ? "จ่ายจริงต่อวัน (USD) · Claude = ค่าแพ็กเฉลี่ยรายวัน" : "ค่าใช้จ่ายต่อวัน (USD) · Claude = ราคา API";
-    barChart($("#c-cost"), days, [{name:"CodeBuddy",color:"var(--cb)",get:g(by(CB,r=>cbUsd(r)||0))},
-      {name:planUsd?"Claude (แพ็ก)":"Claude (API)",color:"var(--claude)",get:planUsd?(d=>pd.get(d)):g(by(CL,r=>apiUsd(r)||0))}], (v,ax)=>"$"+fmt(v,ax&&v>=10?0:2), "USD ต่อวัน");
+    const cl={name:planUsd?"Claude (แพ็ก)":"Claude (API)",color:"var(--claude)",get:planUsd?(d=>pd.get(d)):g(by(CL,r=>apiUsd(r)||0))};
+    barChart($("#c-cost"), days, [...cbSeries(r=>cbUsd(r)||0), cl], (v,ax)=>"$"+fmt(v,ax&&v>=10?0:2), "USD ต่อวัน");
+    legend($("#l-cost"), [...cbSeries(r=>0), cl]);
   } else {
     $("#c-cost-t").textContent = "CodeBuddy credit ต่อวัน" + (planUsd ? ` — Claude เป็นแพ็ก ~$${fmt(planUsd/(planBasis==="calendar"?30:Number(planBasis)),2)}/${planBasis==="calendar"?"วัน ทุกวัน":"วันที่ใช้"}` : "");
-    barChart($("#c-cost"), days, [{name:"CodeBuddy",color:"var(--cb)",get:g(by(CB,r=>r.credit||0))}], (v,ax)=>fmt(v,ax?0:2)+" cr", "credit ต่อวัน");
+    barChart($("#c-cost"), days, cbSeries(r=>r.credit||0), (v,ax)=>fmt(v,ax?0:2)+" cr", "credit ต่อวัน");
+    legend($("#l-cost"), cbSeries(r=>0));
   }
 }
+function legend(el, series){ el.innerHTML = series.map(x=>`<span><i class="sw" style="background:${x.color}"></i>${esc(x.name)}</span>`).join(""); }
 
 function renderFindings(){
   const a=agg(CB), b=agg(CL), F=[];
@@ -306,7 +322,7 @@ function renderFindings(){
   $("#findings").innerHTML = F.map(([lv,t,p])=>`<div class="finding"><span class="pill ${lv}">${{warn:"ระวัง",info:"ข้อสังเกต"}[lv]}</span><div><b>${t}</b><p>${p}</p></div></div>`).join("") || `<p class="foot">ยังไม่มีข้อสังเกต</p>`;
 }
 
-const agentCell = (a, r) => a==="claude" ? `<i class="dot" style="background:var(--claude)"></i>Claude` : a==="codebuddy" ? `<i class="dot" style="background:var(--cb)"></i>CodeBuddy${r&&r.source==="ide"?' <span class="pill info">IDE</span>':""}${r&&r.via==="claude"?' <span class="pill info">Claude สั่ง</span>':""}` : `<i class="dot" style="background:var(--ink-3)"></i>${esc(a)}`;
+const agentCell = (a, r) => a==="claude" ? `<i class="dot" style="background:var(--claude)"></i>Claude` : a==="codebuddy" ? `<i class="dot" style="background:var(--${r&&r.source==="ide"?"ide":"cb"})"></i>CodeBuddy ${r&&r.source==="ide"?"IDE":"CLI"}${r&&r.via==="claude"?' <span class="pill info">Claude สั่ง</span>':""}` : `<i class="dot" style="background:var(--ink-3)"></i>${esc(a)}`;
 const costCell = r => r.agent==="codebuddy" ? `${fmt(r.credit,2)} cr` : (apiUsd(r)!=null ? `<span title="มูลค่าราคา API">$${fmt(apiUsd(r),2)}</span>` : "—");
 
 function renderLatest(){
@@ -317,10 +333,10 @@ function renderLatest(){
 }
 
 function renderRepos(){
-  const m=new Map(); ROWS.forEach(r=>{ const k=r.repo+"|"+r.agent; (m.get(k)||m.set(k,{repo:r.repo,agent:r.agent,rows:[]}).get(k)).rows.push(r); });
+  const m=new Map(); ROWS.forEach(r=>{ const k=r.repo+"|"+r.agent+"|"+(r.source||""); (m.get(k)||m.set(k,{repo:r.repo,agent:r.agent,source:r.source,rows:[]}).get(k)).rows.push(r); });
   const list=[...m.values()].map(o=>({...o,s:agg(o.rows)})).sort((x,y)=>(x.agent===y.agent?0:x.agent==="codebuddy"?-1:1)||(x.agent==="codebuddy"?y.s.credit-x.s.credit:y.s.ctx-x.s.ctx));
   $("#repos").innerHTML = `<thead><tr><th>Repo</th><th>Agent</th><th class="n">รอบ</th><th class="n">Credit</th><th class="n">มูลค่า API</th><th class="n">Token</th><th class="n">Output</th><th class="n">เวลา</th></tr></thead><tbody>`+
-    list.map(o=>`<tr><td>${esc(o.repo)}</td><td style="white-space:nowrap">${agentCell(o.agent)}</td><td class="n">${o.s.n}</td><td class="n">${o.agent==="codebuddy"?fmt(o.s.credit,2):"—"}</td><td class="n">${o.s.hasApi?"$"+fmt(o.s.api,2):"—"}</td><td class="n">${fM(o.s.ctx+o.s.out)}</td><td class="n">${fM(o.s.out)}</td><td class="n">${fmt(o.s.sec/60,0)} น.</td></tr>`).join("")+"</tbody>";
+    list.map(o=>`<tr><td>${esc(o.repo)}</td><td style="white-space:nowrap">${agentCell(o.agent,{source:o.source})}</td><td class="n">${o.s.n}</td><td class="n">${o.agent==="codebuddy"?fmt(o.s.credit,2):"—"}</td><td class="n">${o.s.hasApi?"$"+fmt(o.s.api,2):"—"}</td><td class="n">${fM(o.s.ctx+o.s.out)}</td><td class="n">${fM(o.s.out)}</td><td class="n">${fmt(o.s.sec/60,0)} น.</td></tr>`).join("")+"</tbody>";
 }
 
 let topAgent = store.get("ac-top") || "codebuddy";
@@ -334,7 +350,8 @@ function renderTop(){
 
 function filterRows(){
   if(!spanDays){ ROWS=ALL; } else { const d=new Date(); d.setDate(d.getDate()-(spanDays-1)); const from=dayKey(d); ROWS=ALL.filter(r=>r.ts.slice(0,10)>=from); }
-  CB=ROWS.filter(r=>r.agent==="codebuddy"); CL=ROWS.filter(r=>r.agent==="claude");
+  const isIde = r => r.source==="ide";
+  CB=ROWS.filter(r=>r.agent==="codebuddy" && (cbSource==="all" || (cbSource==="ide")===isIde(r))); CL=ROWS.filter(r=>r.agent==="claude");
 }
 function renderAll(){
   filterRows();
@@ -377,6 +394,8 @@ function applyPlanDefault(){
 (function init(){
   const c=parseFloat(store.get("ac-cpx")); if(c>0){ creditUsd=c; $("#cpx").value=c; }
   if(planTouched){ const p=parseFloat(store.get("ac-plan")); planUsd = p>0?p:null; $("#plan").value = planUsd ?? ""; }
+  const cs=store.get("ac-cbsrc"); if(cs){ cbSource=cs; $("#cbsrc").value=cs; }
+  $("#cbsrc").addEventListener("change",e=>{ cbSource=e.target.value; store.set("ac-cbsrc",cbSource); renderAll(); });
   const bs=store.get("ac-basis"); if(bs){ planBasis=bs; $("#basis").value=bs; }
   $("#basis").addEventListener("change",e=>{ planBasis=e.target.value; store.set("ac-basis",planBasis); renderAll(); });
   const sp=parseInt(store.get("ac-span")); if(sp>=0){ spanDays=sp; $("#span").value=String(sp); }

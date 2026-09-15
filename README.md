@@ -120,7 +120,8 @@ python3 $S/ide_sync.py             # เขียน
 python3 $S/ide_sync.py --watch     # ดึงวนทุก 3 วิ (ใช้แทน dashboard ได้)
 ```
 
-- ลงเป็น `agent: "codebuddy"` + `source: "ide"` → **รวมยอดกับ CLI** · dashboard มีป้าย `IDE` ไว้แยก
+- ลงเป็น `agent: "codebuddy"` + `source: "ide"` → **รวมยอดกับ CLI** · dashboard แยกสี CLI / IDE ในกราฟและตาราง
+  และมีตัวเลือก **CodeBuddy: CLI + IDE / CLI เท่านั้น / IDE เท่านั้น** ไว้เทียบทีละแบบ
 - ⚠️ **ดึง history ของ IDE ทั้งหมดที่อยู่ในเครื่อง ไม่มีวันเริ่ม** — ครั้งแรกอาจได้ย้อนไปหลายเดือน
   (ไม่ได้ขึ้นกับ `backfill --since`) · report / dashboard กรองตามวันอยู่แล้ว ถ้าจะเทียบกับ Claude ให้เลือกช่วงเดียวกัน
 - รอบที่ IDE ยังทำงานไม่จบ ข้ามไว้ รอบหน้าค่อยเก็บ · รอบที่กดยกเลิกกลางทางยังนับ (credit ถูกหักจริง)
