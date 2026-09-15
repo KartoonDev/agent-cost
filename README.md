@@ -276,5 +276,6 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
 ## เจอบั๊ก / อยากได้อะไรเพิ่ม
 
 ยินดีรับ [issue](https://github.com/thanathe/agent-cost/issues) และ PR ทุกขนาด — ตัวเลขผิด, รองรับ agent ตัวอื่น, README ตรงไหนอ่านแล้วงง ก็ส่งมาได้
+วิธีส่ง PR + กติกา (สำคัญ: ห้ามมีข้อมูลส่วนตัว) อยู่ใน [CONTRIBUTING.md](CONTRIBUTING.md) — ทุก PR รีวิวก่อน merge
 
 ถ้าเปิด issue เรื่องตัวเลขหรือ hook ไม่ขึ้น แนบ output ของคำสั่ง `AGENT_COST_DEBUG=1` ข้างบนมาด้วยจะช่วยได้มาก — **ลบ path, ชื่อ repo และข้อความ prompt ออกก่อน** (ดู [ความเป็นส่วนตัว](#ความเป็นส่วนตัว--อ่านก่อนแชร์))
