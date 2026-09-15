@@ -272,3 +272,9 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
 - ใช้ IDE แต่ไม่ขึ้น → `ide_sync.py --dry-run` ได้ 0 = หา history ไม่เจอ ลองชี้ `CODEBUDDY_APPDATA`
 - backfill แล้วตัวเลข Claude พุ่ง → ย้อนไปก่อนเริ่มแพ็กปัจจุบันหรือเปล่า เอา backup คืนแล้วรันใหม่ด้วย `--since`
 - hook พังยังไงก็ **ไม่ทำให้ agent สะดุด** สคริปต์ exit 0 เสมอ
+
+## เจอบั๊ก / อยากได้อะไรเพิ่ม
+
+ยินดีรับ [issue](https://github.com/thanathe/agent-cost/issues) และ PR ทุกขนาด — ตัวเลขผิด, รองรับ agent ตัวอื่น, README ตรงไหนอ่านแล้วงง ก็ส่งมาได้
+
+ถ้าเปิด issue เรื่องตัวเลขหรือ hook ไม่ขึ้น แนบ output ของคำสั่ง `AGENT_COST_DEBUG=1` ข้างบนมาด้วยจะช่วยได้มาก — **ลบ path, ชื่อ repo และข้อความ prompt ออกก่อน** (ดู [ความเป็นส่วนตัว](#ความเป็นส่วนตัว--อ่านก่อนแชร์))
