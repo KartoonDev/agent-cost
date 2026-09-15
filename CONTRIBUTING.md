@@ -17,3 +17,5 @@
 - ทุกตัวที่เขียน ledger ถือ `cost_paths.ledger_lock`
 - เปลี่ยนนิยามตัวเลข (token, credit, elapsed, turn) → อัปเดต README / SKILL.md และบอกในคำอธิบาย PR ว่าคนใช้ต้อง `capture.py --rebuild` หรือ `ide_sync.py --resync` ไหม
 - commit message: `type(scope): สรุป` เช่น `fix(ide_sync): skip empty requests`
+
+ส่ง PR = ยินยอมให้โค้ดที่ส่งมาใช้ [MIT License](LICENSE) เดียวกับ repo
