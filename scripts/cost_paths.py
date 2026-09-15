@@ -51,8 +51,10 @@ class ledger_lock:
     because a hook that hangs would stall the agent. No-op where fcntl is missing.
     """
 
-    def __init__(self, ledger_dir_path, timeout=20.0):
-        self.path = os.path.join(ledger_dir_path, ".ledger.lock")
+    def __init__(self, ledger_dir_path, timeout=20.0, name=".ledger.lock"):
+        # A writer of a different file (e.g. codex-ledger.jsonl) passes its own name so it
+        # never makes the Stop hook wait.
+        self.path = os.path.join(ledger_dir_path, name)
         self.timeout = timeout
         self.fh = None
 

@@ -223,3 +223,10 @@ PY
 - งานนั้นจบในรอบเดียวไหม หรือต้องสั่งแก้ซ้ำอีก 5 รอบ (นับ record ที่ prompt คล้ายกันใน repo เดียวกัน)
 - ผลลัพธ์ผ่านเทส/รีวิวไหม — ledger ไม่รู้เรื่องคุณภาพ ต้องเอา PR/เทสมาประกอบเอง
 - `n_tool_calls` สูงผิดปกติ = วนหาของไม่เจอ มักแปลว่า context ไม่พอตั้งแต่แรก
+
+## Codex
+
+ไม่มี hook — `scripts/codex_capture.py` อ่าน rollout ใน `$CODEX_HOME` (ดีฟอลต์ `~/.codex`) ลง `codex-ledger.jsonl` แยกไฟล์
+dashboard ดึงให้ทุก 10 วิ · `report.py` อ่านรวมให้เอง (`--agent codex`) · ไม่มี credit · ลงเฉพาะรอบที่ `task_complete`
+ใช้ `codex-ledger.lock` ของตัวเอง ไม่แย่ง `.ledger.lock` กับ Stop hook · `ts` เป็นเวลาท้องถิ่น
+รายละเอียด + ข้อจำกัด: README หัวข้อ Codex

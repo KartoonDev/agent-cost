@@ -9,3 +9,8 @@ pricing.json
 *.local.json
 .ide_sync.json*
 .ledger.lock
+
+# Local Codex collector output
+codex-ledger.jsonl
+codex-ledger.tmp
+codex-ledger.lock
