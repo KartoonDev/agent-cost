@@ -329,6 +329,15 @@ function renderFindings(){
   const a=agg(CB), b=agg(CL), F=[];
   if(planUsd && b.hasApi){ const pc=planCost(CL);
     F.push(["info","Claude เป็นแพ็กเหมา ไม่ได้จ่ายตาม token", `แพ็ก $${fmt(planUsd,0)}/เดือน ${planBasis==="calendar"?`เฉลี่ยทุกวันปฏิทิน ${pc.n} วัน`:`คิด ${planBasis} วัน/เดือน × ใช้จริง ${pc.n} วัน`} = $${fmt(pc.usd,2)} ถ้าจ่ายราคา API จะเป็น $${fmt(b.api,0)} (${fmt(b.api/pc.usd,0)}×)`]); }
+  // Turns that hit an API/tool error or had to be resumed still cost what they burned.
+  const errRows=ROWS.filter(r=>(r.n_tool_errors||0)||(r.n_api_errors||0)||r.resumed);
+  if(errRows.length){
+    const cr=errRows.reduce((t,r)=>t+(r.credit||0),0), all=ROWS.reduce((t,r)=>t+(r.credit||0),0);
+    const resumed=errRows.filter(r=>r.resumed).length, api=errRows.filter(r=>r.n_api_errors).length;
+    F.push(["warn","รอบที่เจอ error ก็เสียเงินเหมือนกัน", `${errRows.length} รอบมี error (${api} รอบเป็น API/gateway · ${resumed} รอบเป็นการสั่ง resume ต่อจากรอบที่ล่ม)` +
+      (cr?` รวม ${fmt(cr,1)} credit${all?` = ${fmt(cr/all*100,0)}% ของ credit ทั้งหมดในช่วงนี้`:""}`:"") +
+      ` — 502/504 คือ gateway ล่มหลังโมเดลทำงานไปแล้ว token ถูกคิดไปแล้ว กด Retry = ส่ง context เดิมไปใหม่ทั้งก้อน`]);
+  }
   const noise=CB.filter(isNoise);
   if(noise.length) F.push(["warn","รอบที่ label เป็นคำสั่งหรือว่าง", `${noise.length} รอบของ CodeBuddy (${fmt(noise.reduce((s,r)=>s+(r.credit||0),0),1)} credit) ไม่มี prompt ที่อ่านรู้เรื่อง — ถ้าเพิ่งอัปเดตสคริปต์ ลอง <code>capture.py --rebuild</code>`]);
   // A model switch inside a session forces a full cache miss on the next call.
@@ -349,7 +358,12 @@ function renderLatest(){
   const rs=[...ROWS].sort((x,y)=>x.ts<y.ts?1:-1).slice(0,10);
   $("#latest-n").textContent = `${fmt(ROWS.length)} รอบในช่วงนี้`;
   $("#latest").innerHTML = `<thead><tr><th>เวลา</th><th>Agent</th><th>Repo</th><th>งานที่สั่ง</th><th class="n">Credit / มูลค่า API</th><th class="n">Token</th><th class="n">เวลา</th></tr></thead><tbody>`+
-    rs.map(r=>`<tr class="${newKeys.has(r.turn_key)?"fresh":""}"><td class="mono" style="white-space:nowrap">${r.ts.slice(5,16).replace("T"," ")}</td><td style="white-space:nowrap">${agentCell(r.agent,r)}</td><td>${esc(r.repo)}</td><td class="p">${esc(r.prompt||"—")}</td><td class="n">${costCell(r)}</td><td class="n">${fM(tokAll(r))}</td><td class="n">${fmt((r.elapsed_sec||0)/60,1)} น.</td></tr>`).join("")+"</tbody>";
+    rs.map(r=>`<tr class="${newKeys.has(r.turn_key)?"fresh":""}"><td class="mono" style="white-space:nowrap">${r.ts.slice(5,16).replace("T"," ")}</td><td style="white-space:nowrap">${agentCell(r.agent,r)}</td><td>${esc(r.repo)}</td><td class="p">${esc(r.prompt||"—")}${errPill(r)}</td><td class="n">${costCell(r)}</td><td class="n">${fM(tokAll(r))}</td><td class="n">${fmt((r.elapsed_sec||0)/60,1)} น.</td></tr>`).join("")+"</tbody>";
+}
+function errPill(r){
+  const bits=[]; if(r.n_api_errors) bits.push(`API error ×${r.n_api_errors}`);
+  if(r.n_tool_errors) bits.push(`tool error ×${r.n_tool_errors}`); if(r.resumed) bits.push("resume ต่อ");
+  return bits.length ? ` <span class="pill warn" title="${esc(r.error||"")}">${bits.join(" · ")}</span>` : "";
 }
 
 function renderRepos(){
