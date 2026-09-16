@@ -104,6 +104,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--sunk);padding:1px 5
 .split{margin:0;font-size:12px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:10px}
 .split .sw{width:8px;height:8px;margin-right:4px}
 .split .sep{color:var(--line);margin:0 6px}
+.cat-note{margin:2px 0 10px 88px;font-size:12px;color:var(--ink-3);font-family:var(--mono)}
 .chart-legend{margin-top:8px;font-size:12px;flex-wrap:wrap}
 .split b{font-family:var(--mono);font-weight:600;color:var(--ink)}
 tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
@@ -148,6 +149,11 @@ tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
     <div class="panel chart"><div class="eyebrow" style="margin-bottom:8px">รอบต่อวัน</div><div id="c-turns"></div><div class="legend chart-legend" id="l-turns"></div></div>
     <div class="panel chart"><div class="eyebrow" style="margin-bottom:8px" id="c-cost-t">ค่าใช้จ่ายต่อวัน</div><div id="c-cost"></div><div class="legend chart-legend" id="l-cost"></div></div>
   </div>
+</section>
+
+<section>
+  <div class="row-h"><h2>ใช้ไปกับงานแบบไหน</h2><span class="tag">เดาจาก prompt + tool + ไฟล์ที่แตะ — คร่าว ๆ</span></div>
+  <div class="panel" id="cats"></div>
 </section>
 
 <section>
@@ -325,6 +331,53 @@ function renderCharts(){
 }
 function legend(el, series){ el.innerHTML = series.map(x=>`<span><i class="sw" style="background:${x.color}"></i>${esc(x.name)}</span>`).join(""); }
 
+// Rough bucketing: first keyword that matches wins, then tools/files decide, else "อื่น ๆ".
+const CATS = [
+  ["review",  "รีวิวโค้ด",      /pr-review|review|pull request|\bpr ?#?\d|merge request/i],
+  ["ops",     "deploy / git",   /deploy|release|sit\b|prod|docker|migrat|rollback|\bmerge\b|\bpush\b|\btag\b|pipeline|ci\b/i],
+  ["debug",   "แก้บั๊ก",        /bug|debug|error|exception|\bfix\b|พัง|ไม่ขึ้น|ไม่ทำงาน|แก้ปัญหา|fail/i],
+  ["design",  "design / UI",    /figma|design|\bui\b|\bux\b|หน้าจอ|layout|\bcss\b|สไตล์|ปุ่ม|ธีม|theme|icon/i],
+  ["docs",    "เอกสาร / สรุป",  /readme|document|\bdocs?\b|สรุป|report|wiki|เขียนเอกสาร|changelog|post-?mortem/i],
+  ["admin",   "งานออฟฟิศ",      /meegle|ลงเวลา|time ?record|timelog|tech task|lark|jira|ticket|ประชุม|email|เมล/i],
+  ["data",    "ข้อมูล / query", /\bsql\b|query|ดึงข้อมูล|export|dataset|วิเคราะห์ข้อมูล|report ข้อมูล/i],
+];
+const CODE_EXT = /\.(ts|tsx|js|jsx|py|go|java|rb|php|rs|c|cpp|cs|sql|sh|proto|astro|vue|swift|kt)$/i;
+function category(r){
+  const p = r.prompt || "";
+  for(const [key,label,re] of CATS) if(re.test(p)) return key;
+  const tools = r.tools || [];
+  if(tools.some(t=>/^(Edit|Write|MultiEdit|replace_in_file|write_to_file)$/.test(t))) return "code";
+  if((r.files_touched||[]).some(f=>CODE_EXT.test(f))) return "code";
+  return null;   // undecided — a short follow-up like "ok" continues the previous task
+}
+function categories(rows){
+  // Walk each session in order so undecided turns inherit what that conversation was doing.
+  const out=new Map(), last=new Map();
+  [...rows].sort((a,b)=>a.ts<b.ts?-1:1).forEach(r=>{
+    const own=category(r), k=own || last.get(r.session_id) || "other";
+    if(own) last.set(r.session_id, own);
+    out.set(r.turn_key, k);
+  });
+  return out;
+}
+const CAT_LABEL = Object.fromEntries([...CATS.map(([k,l])=>[k,l]), ["code","เขียนโค้ด"], ["other","อื่น ๆ"]]);
+const CAT_COLOR = {review:"var(--cb)", ops:"var(--claude)", debug:"var(--crit)", design:"var(--ide)",
+  docs:"var(--codex)", admin:"var(--warn)", data:"var(--ok)", code:"var(--ink-2)", other:"var(--ink-3)"};
+
+function renderCats(){
+  const by=new Map(), cat=categories(ROWS);
+  ROWS.forEach(r=>{ const k=cat.get(r.turn_key)||"other"; const o=by.get(k)||{n:0,credit:0,usd:0,tok:0}; o.n++; o.credit+=r.credit||0;
+    o.usd+=(r.agent==="codebuddy"?cbUsd(r):apiUsd(r))||0; o.tok+=tokAll(r); by.set(k,o); });
+  const list=[...by.entries()].sort((a,b)=>b[1].n-a[1].n);
+  const max=Math.max(1,...list.map(([,o])=>o.n)), total=ROWS.length||1;
+  $("#cats").innerHTML = list.map(([k,o])=>`<div class="bar-row">
+      <span>${CAT_LABEL[k]}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${o.n/max*100}%;background:${CAT_COLOR[k]}"></span></span>
+      <span class="mono">${fmt(o.n)} รอบ · ${fmt(o.n/total*100,0)}%</span>
+    </div><p class="cat-note">${o.credit?fmt(o.credit,1)+" cr":""}${o.credit&&o.usd?" · ":""}${o.usd?"$"+fmt(o.usd,2):""}${(o.credit||o.usd)?" · ":""}${fM(o.tok)} token</p>`).join("")
+    || `<p class="foot">ยังไม่มีข้อมูลในช่วงนี้</p>`;
+}
+
 function renderFindings(){
   const a=agg(CB), b=agg(CL), F=[];
   if(planUsd && b.hasApi){ const pc=planCost(CL);
@@ -395,7 +448,7 @@ function renderAll(){
   filterRows();
   const ds=ROWS.map(r=>r.ts).sort(); $("#range").textContent = ds.length ? ds[0].slice(0,10)+" → "+ds.at(-1).slice(0,10) : "ไม่มีข้อมูลในช่วงนี้";
   $("#f-plancx").hidden = !CX.length;
-  renderDuel(); renderVerdict(); renderCharts(); renderFindings(); renderLatest(); renderRepos(); renderTop();
+  renderDuel(); renderVerdict(); renderCats(); renderCharts(); renderFindings(); renderLatest(); renderRepos(); renderTop();
 }
 
 // ---- live polling ----
