@@ -1,5 +1,7 @@
 # agent-cost
 
+*English · [ไทย](README.th.md)*
+
 **Know what your coding agents actually cost you.**
 
 Every time Claude Code, CodeBuddy or Codex finishes a turn, agent-cost writes one line to a local
