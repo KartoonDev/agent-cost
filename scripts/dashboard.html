@@ -129,10 +129,14 @@ tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
     <h2>เทียบกันแบบแฟร์ ๆ</h2>
     <div class="controls">
       <label class="field">ราคา 1 credit (USD)<input id="cpx" type="number" step="0.001" min="0" placeholder="ยังไม่รู้"></label>
+      <label class="field">เรท THB/USD<input id="fx" type="number" step="0.1" min="0" placeholder="ไม่แปลง"></label>
       <label class="field">แพ็ก Claude (USD/เดือน)<input id="plan" type="number" step="1" min="0" placeholder="ไม่มี"></label>
+      <label class="field" id="f-plancx" hidden>แพ็ก Codex (USD/เดือน)<input id="plancx" type="number" step="1" min="0" placeholder="ไม่มี"></label>
       <label class="field">เฉลี่ยค่าแพ็ก<select id="basis"><option value="calendar">ทุกวันในปฏิทิน</option><option value="20">วันที่ใช้ ÷ 20 วัน/เดือน</option><option value="22">วันที่ใช้ ÷ 22 วัน/เดือน</option></select></label>
       <label class="field">CodeBuddy<select id="cbsrc"><option value="all">CLI + IDE</option><option value="cli">CLI เท่านั้น</option><option value="ide">IDE เท่านั้น</option></select></label>
-      <label class="field">ช่วงวัน<select id="span"><option value="0">ทั้งหมด</option><option value="1">วันนี้</option><option value="7">7 วัน</option><option value="30">30 วัน</option></select></label>
+      <label class="field">ช่วงวัน<select id="span"><option value="0">ทั้งหมด</option><option value="1">วันนี้</option><option value="7">7 วัน</option><option value="30">30 วัน</option><option value="custom">กำหนดเอง</option></select></label>
+      <label class="field" id="f-from" hidden>จาก<input id="from" type="date"></label>
+      <label class="field" id="f-to" hidden>ถึง<input id="to" type="date"></label>
     </div>
   </div>
   <div class="verdict" id="verdict"></div>
@@ -186,7 +190,7 @@ const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">"
 const store = { get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,v)}catch(e){}} };
 const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
-let cbSource = "all", ALL = [], PRICING = {}, creditUsd = null, planUsd = null, planBasis = "calendar", spanDays = 0, newKeys = new Set(), knownKeys = null;
+let planCxUsd = null, fxRate = null, fromDay = "", toDay = "", cbSource = "all", ALL = [], PRICING = {}, creditUsd = null, planUsd = null, planBasis = "calendar", spanDays = 0, newKeys = new Set(), knownKeys = null;
 let ROWS = [], CB = [], CL = [], CX = [];
 
 const ctx = r => (r.input_tokens||0)+(r.cache_read_tokens||0)+(r.cache_write_tokens||0);
@@ -196,20 +200,25 @@ function apiUsd(r){
   const cw = p.cache_write ?? (p.input||0)*1.25;
   return ((r.input_tokens||0)*(p.input||0) + (r.output_tokens||0)*(p.output||0) + (r.cache_read_tokens||0)*(p.cache_read||0) + (r.cache_write_tokens||0)*cw)/1e6;
 }
+// Money is computed in USD; THB is a display-only convenience at a rate you set.
+const thb = u => (fxRate && isFinite(u)) ? ` ≈ ฿${fmt(u*fxRate, u*fxRate>=1000?0:2)}` : "";
+const usdThb = (u,d=2) => `$${fmt(u,d)}${thb(u)}`;
 const cbUsd = r => creditUsd ? (r.credit||0)*creditUsd : null;
 const isNoise = r => /^<local-command|^<bash-|^\/(usage|model|clear|cost)\b|^Reply with exactly|^$/.test(r.prompt||"");
 
 // Flat plan, two ways to spread it:
 //  calendar — paid every calendar day, used or not, across the range (a month = its real length)
 //  N        — a month counts as N working days; each day with usage costs plan/N
-function planCost(rs){
+function planCost(rs, monthly){
+  const fee = monthly === undefined ? planUsd : monthly;   // Claude by default; Codex passes its own
   const days=[...new Set(rs.map(r=>r.ts.slice(0,10)))].sort();
-  const perDay=new Map(); if(!days.length||!planUsd) return {usd:0,n:0,perDay};
-  if(planBasis!=="calendar"){ const v=planUsd/Number(planBasis); days.forEach(d=>perDay.set(d,v)); return {usd:v*days.length, n:days.length, perDay}; }
+  const perDay=new Map(); if(!days.length||!fee) return {usd:0,n:0,perDay};
+  if(planBasis!=="calendar"){ const v=fee/Number(planBasis); days.forEach(d=>perDay.set(d,v)); return {usd:v*days.length, n:days.length, perDay}; }
   const d=new Date(days[0]+"T00:00:00"), end=new Date(days.at(-1)+"T00:00:00"); let usd=0;
-  while(d<=end){ const v=planUsd/new Date(d.getFullYear(),d.getMonth()+1,0).getDate(); usd+=v; perDay.set(dayKey(d),v); d.setDate(d.getDate()+1); }
+  while(d<=end){ const v=fee/new Date(d.getFullYear(),d.getMonth()+1,0).getDate(); usd+=v; perDay.set(dayKey(d),v); d.setDate(d.getDate()+1); }
   return {usd, n:perDay.size, perDay};
 }
+function codexCost(){ const c=agg(CX); return planCxUsd ? planCost(CX, planCxUsd).usd : (c.hasApi ? c.api : null); }
 function agg(rs){
   const s={n:rs.length, sess:new Set(rs.map(r=>r.session_id)).size, credit:0, api:0, hasApi:false, ctx:0, out:0, sec:0, tools:0, days:new Set()};
   rs.forEach(r=>{ s.credit+=r.credit||0; const u=apiUsd(r); if(u!=null){s.api+=u;s.hasApi=true} s.ctx+=ctx(r); s.out+=r.output_tokens||0; s.sec+=r.elapsed_sec||0; s.tools+=r.n_tool_calls||0; s.days.add(r.ts.slice(0,10)); });
@@ -227,8 +236,8 @@ function renderDuel(){
       <div><dt>token</dt><dd>${fM(s.ctx+s.out)}</dd></div><div><dt>output token</dt><dd>${fM(s.out)}</dd></div><div><dt>tool calls</dt><dd>${fmt(s.tools)}</dd></div>
       <div><dt>เวลารวม</dt><dd>${fmt(s.sec/3600,1)} ชม.</dd></div><div><dt>เฉลี่ย / รอบ</dt><dd>${s.n?fmt(s.sec/s.n):"—"} s</dd></div><div><dt>token / รอบ</dt><dd>${s.n?fM((s.ctx+s.out)/s.n):"—"}</dd></div>
     </dl>${extra||""}</div>`;
-  const cbBig = `${fmt(a.credit,2)}<small>credit</small>` + (creditUsd?`<small>≈ $${fmt(a.credit*creditUsd,2)}</small>`:"");
-  const clBig = planUsd ? `$${fmt(pc.usd,2)}<small>${planBasis==="calendar"?"จ่ายจริง · "+pc.n+" วันปฏิทิน":"ใช้ "+pc.n+" วัน × $"+fmt(planUsd/Number(planBasis),2)}</small>` : (b.hasApi ? `$${fmt(b.api,2)}<small>ราคา API</small>` : `—<small>ใส่แพ็กหรือราคา API</small>`);
+  const cbBig = `${fmt(a.credit,2)}<small>credit</small>` + (creditUsd?`<small>≈ ${usdThb(a.credit*creditUsd)}</small>`:"");
+  const clBig = planUsd ? `${usdThb(pc.usd)}<small>${planBasis==="calendar"?"จ่ายจริง · "+pc.n+" วันปฏิทิน":"ใช้ "+pc.n+" วัน × $"+fmt(planUsd/Number(planBasis),2)}</small>` : (b.hasApi ? `${usdThb(b.api)}<small>ราคา API</small>` : `—<small>ใส่แพ็กหรือราคา API</small>`);
   const clTag = (planUsd ? `${plan.name||"แพ็ก"} $${fmt(planUsd,0)}/เดือน` : models(CL)) + (planUsd&&b.hasApi ? ` · มูลค่า API $${fmt(b.api,0)}` : "");
   const viaRows=CB.filter(r=>r.via==="claude"), viaCr=viaRows.reduce((t,r)=>t+(r.credit||0),0);
   const ide=CB.filter(r=>r.source==="ide"), cli=CB.filter(r=>r.source!=="ide"), sumCr=rs=>rs.reduce((t,r)=>t+(r.credit||0),0);
@@ -238,7 +247,12 @@ function renderDuel(){
   const clExtra = `<p class="split">subagent ${fmt(subRows.length)} รอบ · ${fM(subTok)} token (${(b.ctx+b.out)?fmt(subTok/(b.ctx+b.out)*100,0):0}% ของ token)</p>`;
   const cbName = cbSource==="cli" ? "CodeBuddy CLI" : cbSource==="ide" ? "CodeBuddy IDE" : "CodeBuddy";
   // Codex only gets a column for people who actually use it.
-  const cx=agg(CX), codexSide = CX.length ? side("Codex","var(--codex)",cx,fM(cx.ctx+cx.out)+"<small>token</small>",models(CX),`<p class="split">รอบที่ทำเสร็จในเครื่อง · ไม่มีข้อมูล credit${cx.hasApi?` · มูลค่า API $${fmt(cx.api,2)}`:""}</p>`) : "";
+  const cx=agg(CX), cxCost=codexCost(), cxPc=planCost(CX, planCxUsd);
+  const cxBig = planCxUsd ? `${usdThb(cxPc.usd)}<small>${planBasis==="calendar"?"จ่ายจริง · "+cxPc.n+" วันปฏิทิน":"ใช้ "+cxPc.n+" วัน × $"+fmt(planCxUsd/Number(planBasis),2)}</small>`
+    : (cx.hasApi ? `${usdThb(cx.api)}<small>ราคา API</small>` : fM(cx.ctx+cx.out)+"<small>token</small>");
+  const cxTag = (planCxUsd ? `แพ็ก $${fmt(planCxUsd,0)}/เดือน` : models(CX)) + (planCxUsd&&cx.hasApi ? ` · มูลค่า API $${fmt(cx.api,0)}` : "");
+  const codexSide = CX.length ? side("Codex","var(--codex)",cx,cxBig,cxTag,
+    `<p class="split">รอบที่ทำเสร็จในเครื่อง · ไม่มี credit${planCxUsd?"":cx.hasApi?" · ตัวเลขนี้คือราคา API":" · ใส่แพ็ก Codex หรือราคา API ใน pricing.json"}</p>`) : "";
   $("#duel").classList.toggle("three", CX.length>0);
   $("#duel").innerHTML = side(cbName,"var(--cb)",a,cbBig,models(CB),cbExtra) + side("Claude Code","var(--claude)",b,clBig,clTag,clExtra) + codexSide;
 }
@@ -249,18 +263,19 @@ function renderVerdict(){
   const a=agg(CB), b=agg(CL), cl=claudeCost();
   const cbPerM=a.credit/((a.ctx+a.out)/1e6), clPerM=cl==null?null:cl/((b.ctx+b.out)/1e6);
   const basis = planUsd ? "คิดจากแพ็ก" : "คิดจากราคา API";
+  const cxc=codexCost(), cxa=agg(CX), cxPerM = cxc==null||!(cxa.ctx+cxa.out) ? null : cxc/((cxa.ctx+cxa.out)/1e6);
   const cells=[];
-  cells.push(`<div class="vcell"><span class="lbl">ต่อ 1M token</span><span class="val"><span style="color:var(--cb)">${fmt(cbPerM,1)} cr</span> · <span style="color:var(--claude)">$${fmt(clPerM,4)}</span></span><span class="note">Claude ${basis}${planUsd&&b.hasApi?` · ราคา API จะเป็น $${fmt(b.api/((b.ctx+b.out)/1e6),2)} (แพ็กคุ้มกว่า ${fmt(b.api/cl,0)}×)`:""}</span></div>`);
-  cells.push(`<div class="vcell"><span class="lbl">ต่อ 1 รอบ</span><span class="val"><span style="color:var(--cb)">${fmt(a.credit/a.n,1)} cr</span> · <span style="color:var(--claude)">$${fmt(cl/b.n,3)}</span></span><span class="note">token ต่อรอบ ${fM((a.ctx+a.out)/a.n)} vs ${fM((b.ctx+b.out)/b.n)} — ขนาดงานต่างกัน เทียบต่อรอบตรง ๆ ไม่ได้</span></div>`);
+  cells.push(`<div class="vcell"><span class="lbl">ต่อ 1M token</span><span class="val"><span style="color:var(--cb)">${fmt(cbPerM,1)} cr</span> · <span style="color:var(--claude)">$${fmt(clPerM,4)}</span></span><span class="note">${CX.length&&cxPerM!=null?`Codex $${fmt(cxPerM,4)} · `:""}Claude ${basis}${planUsd&&b.hasApi?` · ราคา API จะเป็น $${fmt(b.api/((b.ctx+b.out)/1e6),2)} (แพ็กคุ้มกว่า ${fmt(b.api/cl,0)}×)`:""}</span></div>`);
+  cells.push(`<div class="vcell"><span class="lbl">ต่อ 1 รอบ</span><span class="val"><span style="color:var(--cb)">${fmt(a.credit/a.n,1)} cr</span> · <span style="color:var(--claude)">$${fmt(cl/b.n,3)}</span></span><span class="note">${CX.length&&cxc!=null?`Codex $${fmt(cxc/cxa.n,3)} · `:""}token ต่อรอบ ${fM((a.ctx+a.out)/a.n)} vs ${fM((b.ctx+b.out)/b.n)} — ขนาดงานต่างกัน เทียบต่อรอบตรง ๆ ไม่ได้</span></div>`);
   if(clPerM==null || !a.n){
     cells.push(`<div class="vcell"><span class="lbl">จุดคุ้มทุน</span><span class="val">—</span><span class="note">ต้องมีข้อมูลทั้งสองฝั่ง และใส่แพ็ก Claude หรือราคา API ใน pricing.json</span></div>`);
   } else if(creditUsd){
     // Headline = total money in range; per-token / per-output / per-turn stay in the note.
     const cbTotal=a.credit*creditUsd, ratio=cbTotal/cl;
     const word = Math.abs(ratio-1)<0.05 ? "พอ ๆ กับ Claude" : ratio<1 ? "ถูกกว่า "+fmt(1/ratio,1)+"×" : "แพงกว่า "+fmt(ratio,1)+"×";
-    cells.push(`<div class="vcell"><span class="lbl">จ่ายรวมช่วงนี้ ที่ ${fmt(creditUsd,4)} USD/credit</span><span class="val" style="color:${ratio<1?"var(--ok)":"var(--crit)"}">CodeBuddy ${word}</span><span class="note">รวม $${fmt(cbTotal,2)} vs $${fmt(cl,2)} · ต่อรอบ $${fmt(cbTotal/a.n,3)} vs $${fmt(cl/b.n,3)} · ต่อ 1M output $${fmt(cbTotal/(a.out/1e6),2)} vs $${fmt(cl/(b.out/1e6),2)} · ต่อ 1M token $${fmt(cbPerM*creditUsd,3)} vs $${fmt(clPerM,4)}</span></div>`);
+    cells.push(`<div class="vcell"><span class="lbl">จ่ายรวมช่วงนี้ ที่ ${fmt(creditUsd,4)} USD/credit</span><span class="val" style="color:${ratio<1?"var(--ok)":"var(--crit)"}">CodeBuddy ${word}</span><span class="note">รวม ${usdThb(cbTotal)} vs ${usdThb(cl)} · ต่อรอบ $${fmt(cbTotal/a.n,3)} vs $${fmt(cl/b.n,3)} · ต่อ 1M output $${fmt(cbTotal/(a.out/1e6),2)} vs $${fmt(cl/(b.out/1e6),2)} · ต่อ 1M token $${fmt(cbPerM*creditUsd,3)} vs $${fmt(clPerM,4)}</span></div>`);
   } else {
-    cells.push(`<div class="vcell"><span class="lbl">จุดคุ้มทุน (จ่ายรวมช่วงนี้)</span><span class="val">$${fmt(cl/a.credit,5)} / credit</span><span class="note">1 credit ต้องถูกกว่านี้ CodeBuddy ถึงจะจ่ายรวมน้อยกว่า Claude ($${fmt(cl,2)}) — ใส่ราคา credit ด้านบนเพื่อดูผล</span></div>`);
+    cells.push(`<div class="vcell"><span class="lbl">จุดคุ้มทุน (จ่ายรวมช่วงนี้)</span><span class="val">$${fmt(cl/a.credit,5)}${fxRate?` (฿${fmt(cl/a.credit*fxRate,3)})`:""} / credit</span><span class="note">1 credit ต้องถูกกว่านี้ CodeBuddy ถึงจะจ่ายรวมน้อยกว่า Claude ($${fmt(cl,2)}) — ใส่ราคา credit ด้านบนเพื่อดูผล</span></div>`);
   }
   $("#verdict").innerHTML = cells.join("");
 }
@@ -356,13 +371,16 @@ function renderTop(){
 }
 
 function filterRows(){
-  if(!spanDays){ ROWS=ALL; } else { const d=new Date(); d.setDate(d.getDate()-(spanDays-1)); const from=dayKey(d); ROWS=ALL.filter(r=>r.ts.slice(0,10)>=from); }
+  if(spanDays==="custom"){
+    ROWS=ALL.filter(r=>{ const d=r.ts.slice(0,10); return (!fromDay || d>=fromDay) && (!toDay || d<=toDay); });
+  } else if(!spanDays){ ROWS=ALL; } else { const d=new Date(); d.setDate(d.getDate()-(spanDays-1)); const from=dayKey(d); ROWS=ALL.filter(r=>r.ts.slice(0,10)>=from); }
   const isIde = r => r.source==="ide";
   CB=ROWS.filter(r=>r.agent==="codebuddy" && (cbSource==="all" || (cbSource==="ide")===isIde(r))); CL=ROWS.filter(r=>r.agent==="claude"); CX=ROWS.filter(r=>r.agent==="codex");
 }
 function renderAll(){
   filterRows();
   const ds=ROWS.map(r=>r.ts).sort(); $("#range").textContent = ds.length ? ds[0].slice(0,10)+" → "+ds.at(-1).slice(0,10) : "ไม่มีข้อมูลในช่วงนี้";
+  $("#f-plancx").hidden = !CX.length;
   renderDuel(); renderVerdict(); renderCharts(); renderFindings(); renderLatest(); renderRepos(); renderTop();
 }
 
@@ -394,6 +412,8 @@ let planTouched = store.get("ac-plan") !== null;
 function applyPlanDefault(){
   if(planTouched) return;
   const p=((PRICING._plans||{}).claude||{}).usd_per_month; planUsd = p>0 ? p : null; $("#plan").value = planUsd ?? "";
+  const pcx=((PRICING._plans||{}).codex||{}).usd_per_month; if(pcx>0 && store.get("ac-plancx")===null){ planCxUsd=pcx; $("#plancx").value=pcx; }
+  const fx=(PRICING._fx||{}).thb_per_usd; if(fx>0 && store.get("ac-fx")===null){ fxRate=fx; $("#fx").value=fx; }
   const dpm=((PRICING._plans||{}).claude||{}).days_per_month; if(dpm>0 && store.get("ac-basis")===null){ planBasis=String(dpm); if(![...$("#basis").options].some(o=>o.value===planBasis)) $("#basis").add(new Option(`วันที่ใช้ ÷ ${dpm} วัน/เดือน`,planBasis)); $("#basis").value=planBasis; }
   const c=((PRICING._plans||{}).codebuddy||{}).usd_per_credit; if(c>0 && store.get("ac-cpx")===null){ creditUsd=c; $("#cpx").value=c; }
 }
@@ -401,14 +421,29 @@ function applyPlanDefault(){
 (function init(){
   const c=parseFloat(store.get("ac-cpx")); if(c>0){ creditUsd=c; $("#cpx").value=c; }
   if(planTouched){ const p=parseFloat(store.get("ac-plan")); planUsd = p>0?p:null; $("#plan").value = planUsd ?? ""; }
+  const pcxs=parseFloat(store.get("ac-plancx")); if(pcxs>0){ planCxUsd=pcxs; $("#plancx").value=pcxs; }
+  $("#plancx").addEventListener("input",e=>{ const v=parseFloat(e.target.value); planCxUsd=v>0?v:null; store.set("ac-plancx", planCxUsd?String(planCxUsd):"0"); renderAll(); });
+  const fxs=parseFloat(store.get("ac-fx")); if(fxs>0){ fxRate=fxs; $("#fx").value=fxs; }
+  $("#fx").addEventListener("input",e=>{ const v=parseFloat(e.target.value); fxRate=v>0?v:null; store.set("ac-fx", fxRate?String(fxRate):""); renderAll(); });
   const cs=store.get("ac-cbsrc"); if(cs){ cbSource=cs; $("#cbsrc").value=cs; }
   $("#cbsrc").addEventListener("change",e=>{ cbSource=e.target.value; store.set("ac-cbsrc",cbSource); renderAll(); });
   const bs=store.get("ac-basis"); if(bs){ planBasis=bs; $("#basis").value=bs; }
   $("#basis").addEventListener("change",e=>{ planBasis=e.target.value; store.set("ac-basis",planBasis); renderAll(); });
-  const sp=parseInt(store.get("ac-span")); if(sp>=0){ spanDays=sp; $("#span").value=String(sp); }
+  const sp=store.get("ac-span");
+  if(sp==="custom"){ spanDays="custom"; $("#span").value="custom"; } else if(sp!==null && parseInt(sp)>=0){ spanDays=parseInt(sp); $("#span").value=sp; }
+  fromDay=store.get("ac-from")||""; toDay=store.get("ac-to")||""; $("#from").value=fromDay; $("#to").value=toDay;
+  const showCustom=()=>{ const on=spanDays==="custom"; $("#f-from").hidden=!on; $("#f-to").hidden=!on; };
+  // Empty custom dates default to the range the ledger actually covers.
+  const seedCustom=()=>{ if(!ALL.length) return; const ds=ALL.map(r=>r.ts.slice(0,10)).sort();
+    if(!fromDay){ fromDay=ds[0]; $("#from").value=fromDay; store.set("ac-from",fromDay); }
+    if(!toDay){ toDay=ds.at(-1); $("#to").value=toDay; store.set("ac-to",toDay); } };
+  showCustom();
+  $("#from").addEventListener("change",e=>{ fromDay=e.target.value; store.set("ac-from",fromDay); renderAll(); });
+  $("#to").addEventListener("change",e=>{ toDay=e.target.value; store.set("ac-to",toDay); renderAll(); });
   $("#cpx").addEventListener("input",e=>{ const v=parseFloat(e.target.value); creditUsd=v>0?v:null; store.set("ac-cpx", creditUsd?String(creditUsd):""); renderAll(); });
   $("#plan").addEventListener("input",e=>{ const v=parseFloat(e.target.value); planUsd=v>0?v:null; planTouched=true; store.set("ac-plan", planUsd?String(planUsd):"0"); renderAll(); });
-  $("#span").addEventListener("change",e=>{ spanDays=parseInt(e.target.value)||0; store.set("ac-span",String(spanDays)); renderAll(); });
+  $("#span").addEventListener("change",e=>{ spanDays = e.target.value==="custom" ? "custom" : (parseInt(e.target.value)||0);
+    store.set("ac-span",String(spanDays)); showCustom(); if(spanDays==="custom") seedCustom(); renderAll(); });
   document.querySelectorAll(".seg button").forEach(b=>b.addEventListener("click",()=>{ topAgent=b.dataset.a; store.set("ac-top",topAgent); renderTop(); }));
   const tip=$("#tip");
   document.addEventListener("mousemove",e=>{ const t=e.target.closest&&e.target.closest("[data-tip]"); if(!t){tip.hidden=true;return;} tip.textContent=t.dataset.tip; tip.hidden=false; tip.style.left=(e.clientX+12)+"px"; tip.style.top=(e.clientY-30)+"px"; });
