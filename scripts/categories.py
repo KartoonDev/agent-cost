@@ -14,11 +14,16 @@ import re
 # key, label shown to people, pattern matched against the prompt. First match wins.
 CATS = [
     ("review", "รีวิวโค้ด", r"pr-review|review|pull request|\bpr ?#?\d|merge request"),
+    # Before ops/code so "plan the deploy" or "estimate this feature" count as planning.
+    ("plan", "วางแผน / ประชุม", r"\bplan\b|วางแผน|estimate|ประเมิน|roadmap|ประชุม|meeting|grill|\bspec\b|\bprd\b"
+                                r"|requirement|architecture|ออกแบบระบบ|open question"),
     ("ops", "deploy / git", r"deploy|release|sit\b|prod|docker|migrat|rollback|\bmerge\b|\bpush\b|\btag\b|pipeline|ci\b"),
     ("debug", "แก้บั๊ก", r"bug|debug|error|exception|\bfix\b|พัง|ไม่ขึ้น|ไม่ทำงาน|แก้ปัญหา|fail"),
     ("design", "design / UI", r"figma|design|\bui\b|\bux\b|หน้าจอ|layout|\bcss\b|สไตล์|ปุ่ม|ธีม|theme|icon"),
     ("docs", "เอกสาร / สรุป", r"readme|document|\bdocs?\b|สรุป|report|wiki|เขียนเอกสาร|changelog|post-?mortem"),
-    ("admin", "งานออฟฟิศ", r"meegle|ลงเวลา|time ?record|timelog|tech task|lark|jira|ticket|ประชุม|email|เมล"),
+    # Messages people send, not mail infrastructure (email routing / DNS belongs to ops).
+    ("admin", "งานออฟฟิศ", r"meegle|ลงเวลา|time ?record|timelog|tech task|lark|jira|ticket"
+                           r"|ส่ง ?(อี)?เมล|ตอบ ?(อี)?เมล|ร่าง ?(อี)?เมล|inbox"),
     ("data", "ข้อมูล / query", r"\bsql\b|query|ดึงข้อมูล|export|dataset|วิเคราะห์ข้อมูล|report ข้อมูล"),
 ]
 LABELS = dict([(k, l) for k, l, _ in CATS] + [("code", "เขียนโค้ด"), ("other", "อื่น ๆ")])
