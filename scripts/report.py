@@ -17,6 +17,7 @@ from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cost_paths import ledger_dir
+import categories
 
 LEDGER_DIR = ledger_dir()
 LEDGER = os.path.join(LEDGER_DIR, "ledger.jsonl")
@@ -194,6 +195,25 @@ def error_section(rows, pricing):
                   "· CodeBuddy IDE ไม่เก็บ body ของ 5xx ลงดิสก์ เลยเห็นทางอ้อมจากรอบ `resume` เท่านั้น", ""]
 
 
+def category_section(rows, pricing):
+    """Where the turns (and the money) went, by kind of work."""
+    if not rows:
+        return []
+    cat = categories.assign(rows)
+    by = defaultdict(list)
+    for r in rows:
+        by[cat.get(r.get("turn_key") or id(r), "other")].append(r)
+    out = ["## ใช้ไปกับงานแบบไหน", "",
+           "| หมวด | รอบ | % | Credit | USD ราคา API | Token |", "|---|--:|--:|--:|--:|--:|"]
+    for key in sorted(by, key=lambda k: -len(by[k])):
+        a = agg(by[key], pricing)
+        out.append(f"| {categories.LABELS.get(key, key)} | {a['turns']} | {a['turns']/len(rows)*100:.0f}% "
+                   f"| {round(a['credit'],2) if a['has_credit'] else '—'} "
+                   f"| {round(a['usd'],2) if a['has_usd'] else '—'} | {fmt(a['tok'])} |")
+    return out + ["", "> เดาจาก prompt + tool + นามสกุลไฟล์ (คร่าว ๆ) · รอบที่ prompt สั้นจนจับไม่ได้ "
+                  "ใช้หมวดของรอบก่อนหน้าใน session เดียวกัน · แก้คำที่ใช้จับได้ใน `scripts/categories.py`", ""]
+
+
 def ledger_files(args):
     """(path, owner) pairs to read.
 
@@ -356,6 +376,7 @@ def main():
         md += ["> USD เป็น `—` เพราะยังไม่ได้ตั้งราคา — เติม `pricing.json` "
                "(`{\"claude-opus-5\": {\"input\": 0, \"output\": 0, \"cache_read\": 0}}` USD ต่อ 1M token) แล้วรันใหม่", ""]
     md += real_cost_section(rows, pricing)
+    md += category_section(rows, pricing)
     md += error_section(rows, pricing)
 
     if args.compare:

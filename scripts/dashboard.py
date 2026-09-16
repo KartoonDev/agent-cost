@@ -17,6 +17,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cost_paths import ledger_dir
 import ide_sync
+import categories
 from codex_capture import CodexCollector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -81,7 +82,7 @@ def snapshot():
             pricing = json.load(f)
     except Exception:
         pricing = {}
-    return {"ledger": ledger, "rows": rows, "pricing": pricing}
+    return {"ledger": ledger, "rows": rows, "pricing": pricing, "categories": categories.config()}
 
 
 class Handler(BaseHTTPRequestHandler):
