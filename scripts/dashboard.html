@@ -82,6 +82,7 @@ tr:last-child td{border-bottom:0}
 .pill.warn{color:var(--warn);background:var(--warn-bg)}
 .pill.ok{color:var(--ok);background:var(--ok-bg)}
 .pill.info{color:var(--ink-2);background:var(--sunk)}
+.pill.cat{color:var(--cat-fg,var(--ink-2));background:var(--cat-bg,var(--sunk));white-space:nowrap}
 .finding b{font-weight:600}
 .finding p{margin:2px 0 0;color:var(--ink-2);max-width:80ch}
 code{font-family:var(--mono);font-size:12px;background:var(--sunk);padding:1px 5px;border-radius:4px}
@@ -107,6 +108,12 @@ code{font-family:var(--mono);font-size:12px;background:var(--sunk);padding:1px 5
 .chart-legend{margin-top:8px;font-size:12px;flex-wrap:wrap}
 .split b{font-family:var(--mono);font-weight:600;color:var(--ink)}
 tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
+.cat-bars{display:flex;flex-direction:column;gap:10px}
+.cat-row{display:grid;grid-template-columns:128px 1fr 132px;gap:12px;align-items:center}
+.cat-track{height:18px;background:var(--sunk);border-radius:4px;overflow:hidden}
+.cat-fill{height:100%;background:var(--cat-color);border-radius:4px}
+.cat-metric{font-family:var(--mono);font-size:12px;text-align:right;color:var(--ink-2)}
+@media (max-width:820px){.cat-row{grid-template-columns:1fr}.cat-metric{text-align:left}}
 </style>
 
 <div class="wrap">
@@ -134,6 +141,7 @@ tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
       <label class="field" id="f-plancx" hidden>แพ็ก Codex (USD/เดือน)<input id="plancx" type="number" step="1" min="0" placeholder="ไม่มี"></label>
       <label class="field">เฉลี่ยค่าแพ็ก<select id="basis"><option value="calendar">ทุกวันในปฏิทิน</option><option value="20">วันที่ใช้ ÷ 20 วัน/เดือน</option><option value="22">วันที่ใช้ ÷ 22 วัน/เดือน</option></select></label>
       <label class="field">CodeBuddy<select id="cbsrc"><option value="all">CLI + IDE</option><option value="cli">CLI เท่านั้น</option><option value="ide">IDE เท่านั้น</option></select></label>
+      <label class="field">หมวดงาน<select id="cat"><option value="all">ทั้งหมด</option></select></label>
       <label class="field">ช่วงวัน<select id="span"><option value="0">ทั้งหมด</option><option value="1">วันนี้</option><option value="7">7 วัน</option><option value="30">30 วัน</option><option value="custom">กำหนดเอง</option></select></label>
       <label class="field" id="f-from" hidden>จาก<input id="from" type="date"></label>
       <label class="field" id="f-to" hidden>ถึง<input id="to" type="date"></label>
@@ -148,6 +156,14 @@ tr.fresh td{background:var(--ok-bg);transition:background 1.5s}
     <div class="panel chart"><div class="eyebrow" style="margin-bottom:8px">รอบต่อวัน</div><div id="c-turns"></div><div class="legend chart-legend" id="l-turns"></div></div>
     <div class="panel chart"><div class="eyebrow" style="margin-bottom:8px" id="c-cost-t">ค่าใช้จ่ายต่อวัน</div><div id="c-cost"></div><div class="legend chart-legend" id="l-cost"></div></div>
   </div>
+</section>
+
+<section>
+  <div class="row-h">
+    <h2>หมวดงาน</h2>
+    <span class="tag" id="cat-n"></span>
+  </div>
+  <div class="panel cat-bars" id="cat-bars"></div>
 </section>
 
 <section>
@@ -190,7 +206,7 @@ const esc = s => String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">"
 const store = { get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,v)}catch(e){}} };
 const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 
-let planCxUsd = null, fxRate = null, fromDay = "", toDay = "", cbSource = "all", ALL = [], PRICING = {}, creditUsd = null, planUsd = null, planBasis = "calendar", spanDays = 0, newKeys = new Set(), knownKeys = null;
+let planCxUsd = null, fxRate = null, fromDay = "", toDay = "", cbSource = "all", catFilter = "all", ALL = [], PRICING = {}, creditUsd = null, planUsd = null, planBasis = "calendar", spanDays = 0, newKeys = new Set(), knownKeys = null;
 let ROWS = [], CB = [], CL = [], CX = [];
 
 const ctx = r => (r.input_tokens||0)+(r.cache_read_tokens||0)+(r.cache_write_tokens||0);
@@ -205,6 +221,37 @@ const thb = u => (fxRate && isFinite(u)) ? ` ≈ ฿${fmt(u*fxRate, u*fxRate>=10
 const usdThb = (u,d=2) => `$${fmt(u,d)}${thb(u)}`;
 const cbUsd = r => creditUsd ? (r.credit||0)*creditUsd : null;
 const isNoise = r => /^<local-command|^<bash-|^\/(usage|model|clear|cost)\b|^Reply with exactly|^$/.test(r.prompt||"");
+const CATEGORIES = [
+  {id:"coding", label:"Coding", color:"#2a78d6", bg:"#e8f1fd", fg:"#17589f", terms:["code","โค้ด","component","function","feature","implement","refactor","แก้โค้ด","เพิ่ม","สร้าง","เขียน","ไฟล์","dashboard","collector","script"]},
+  {id:"debugging", label:"Debug", color:"#c85f2a", bg:"#fff0e6", fg:"#934014", terms:["debug","error","bug","fail","trace","reproduce","ทำไม","ไม่ขึ้น","แก้ไข","แก้เลย","ผิด","ล้ม","หา原因","สาเหตุ"]},
+  {id:"review", label:"Review", color:"#7d5cc6", bg:"#f0ebff", fg:"#5d3aa0", terms:["review","รีวิว","ตรวจ pr","ตรวจโค้ด","ดู pr","comment pr","security","quality"]},
+  {id:"git_pr", label:"Git/PR", color:"#556070", bg:"#eef1f5", fg:"#3f4855", terms:["pr","pull request","branch","commit","push","pull ใหม่","merge","rebase","fork","github"]},
+  {id:"docs", label:"Docs", color:"#2f8a5f", bg:"#e8f5ee", fg:"#1f6c48", terms:["readme","docs","document","skill","handoff","postmortem","post-mortem","rca","release note","สรุป","เอกสาร"]},
+  {id:"setup_ops", label:"Setup/Ops", color:"#a77719", bg:"#fff3d7", fg:"#76520d", terms:["install","setup","config","hook","dashboard","localhost","server","run","restart","ลง","ตั้งค่า","เปิด"]},
+  {id:"analysis", label:"Analysis", color:"#16829a", bg:"#e3f5f8", fg:"#0f6173", terms:["วิเคราะห์","เทียบ","compare","report","cost","ราคา","มูลค่า","token","credit","ข้อมูล","กราฟ","chart"]},
+  {id:"data_repair", label:"Data Repair", color:"#bf477d", bg:"#fdebf4", fg:"#8f2e5b", terms:["rebuild","resync","backfill","ledger","repair","sync","normalize","ย้อนหลัง","ซ่อม","กู้"]},
+  {id:"research", label:"Research", color:"#24836d", bg:"#e6f5f1", fg:"#176552", terms:["ค้น","search","pricing","docs ล่าสุด","official","หา","อ้างอิง"]},
+  {id:"other", label:"Other", color:"#7a8392", bg:"#eef0f3", fg:"#596272", terms:[]}
+];
+const CAT = Object.fromEntries(CATEGORIES.map(c=>[c.id,c]));
+const categoryOf = r => {
+  const text = String(r.prompt||"").toLowerCase();
+  if(!text.trim()) return "other";
+  const ordered = ["data_repair","git_pr","review","debugging","setup_ops","docs","analysis","research","coding"];
+  return ordered.find(id => CAT[id].terms.some(t => {
+    const term = t.toLowerCase();
+    return term === "pr" ? /\bpr\b/.test(text) : text.includes(term);
+  })) || "other";
+};
+const catPill = r => {
+  const c = CAT[categoryOf(r)];
+  return `<span class="pill cat" style="--cat-bg:${c.bg};--cat-fg:${c.fg}">${esc(c.label)}</span>`;
+};
+const catPillById = id => {
+  const c = CAT[id] || CAT.other;
+  return `<span class="pill cat" style="--cat-bg:${c.bg};--cat-fg:${c.fg}">${esc(c.label)}</span>`;
+};
+const rowValueUsd = r => r.agent==="codebuddy" ? cbUsd(r) : apiUsd(r);
 
 // Flat plan, two ways to spread it:
 //  calendar — paid every calendar day, used or not, across the range (a month = its real length)
@@ -325,6 +372,32 @@ function renderCharts(){
 }
 function legend(el, series){ el.innerHTML = series.map(x=>`<span><i class="sw" style="background:${x.color}"></i>${esc(x.name)}</span>`).join(""); }
 
+function renderCategories(){
+  const byCat = new Map();
+  ROWS.forEach(r=>{
+    const id = categoryOf(r), v = byCat.get(id) || {id, rows:[], usd:0, knownUsd:false, credit:0, token:0};
+    const u = rowValueUsd(r);
+    v.rows.push(r); v.credit += r.credit || 0; v.token += tokAll(r);
+    if(u != null){ v.usd += u; v.knownUsd = true; }
+    byCat.set(id, v);
+  });
+  const list = [...byCat.values()].sort((a,b)=>
+    (b.knownUsd?b.usd:0) - (a.knownUsd?a.usd:0) || b.credit - a.credit || b.token - a.token || b.rows.length - a.rows.length);
+  const max = Math.max(1, ...list.map(x => x.knownUsd ? x.usd : x.credit || x.token/1e6));
+  $("#cat-n").textContent = `${fmt(list.length)} หมวด · ${fmt(ROWS.length)} รอบ`;
+  $("#cat-bars").innerHTML = list.length ? list.map(x=>{
+    const c = CAT[x.id], value = x.knownUsd ? x.usd : x.credit || x.token/1e6;
+    const money = x.knownUsd ? usdThb(x.usd) : x.credit ? `${fmt(x.credit,1)} cr` : `${fM(x.token)} tok`;
+    return `<div class="cat-row">
+      <div>${catPillById(x.id)}</div>
+      <div class="cat-track" data-tip="${esc(c.label)} · ${fmt(x.rows.length)} รอบ · ${money}">
+        <div class="cat-fill" style="--cat-color:${c.color};width:${Math.max(3, value/max*100)}%"></div>
+      </div>
+      <div class="cat-metric">${money} · ${fmt(x.rows.length)} รอบ</div>
+    </div>`;
+  }).join("") : `<p class="foot">ไม่มีข้อมูลในช่วงนี้</p>`;
+}
+
 function renderFindings(){
   const a=agg(CB), b=agg(CL), F=[];
   if(planUsd && b.hasApi){ const pc=planCost(CL);
@@ -348,15 +421,15 @@ const costCell = r => r.agent==="codebuddy" ? `${fmt(r.credit,2)} cr` : (apiUsd(
 function renderLatest(){
   const rs=[...ROWS].sort((x,y)=>x.ts<y.ts?1:-1).slice(0,10);
   $("#latest-n").textContent = `${fmt(ROWS.length)} รอบในช่วงนี้`;
-  $("#latest").innerHTML = `<thead><tr><th>เวลา</th><th>Agent</th><th>Repo</th><th>งานที่สั่ง</th><th class="n">Credit / มูลค่า API</th><th class="n">Token</th><th class="n">เวลา</th></tr></thead><tbody>`+
-    rs.map(r=>`<tr class="${newKeys.has(r.turn_key)?"fresh":""}"><td class="mono" style="white-space:nowrap">${r.ts.slice(5,16).replace("T"," ")}</td><td style="white-space:nowrap">${agentCell(r.agent,r)}</td><td>${esc(r.repo)}</td><td class="p">${esc(r.prompt||"—")}</td><td class="n">${costCell(r)}</td><td class="n">${fM(tokAll(r))}</td><td class="n">${fmt((r.elapsed_sec||0)/60,1)} น.</td></tr>`).join("")+"</tbody>";
+  $("#latest").innerHTML = `<thead><tr><th>เวลา</th><th>Agent</th><th>Repo</th><th>หมวด</th><th>งานที่สั่ง</th><th class="n">Credit / มูลค่า API</th><th class="n">Token</th><th class="n">เวลา</th></tr></thead><tbody>`+
+    rs.map(r=>`<tr class="${newKeys.has(r.turn_key)?"fresh":""}"><td class="mono" style="white-space:nowrap">${r.ts.slice(5,16).replace("T"," ")}</td><td style="white-space:nowrap">${agentCell(r.agent,r)}</td><td>${esc(r.repo)}</td><td>${catPill(r)}</td><td class="p">${esc(r.prompt||"—")}</td><td class="n">${costCell(r)}</td><td class="n">${fM(tokAll(r))}</td><td class="n">${fmt((r.elapsed_sec||0)/60,1)} น.</td></tr>`).join("")+"</tbody>";
 }
 
 function renderRepos(){
-  const m=new Map(); ROWS.forEach(r=>{ const k=r.repo+"|"+r.agent+"|"+(r.source||""); (m.get(k)||m.set(k,{repo:r.repo,agent:r.agent,source:r.source,rows:[]}).get(k)).rows.push(r); });
+  const m=new Map(); ROWS.forEach(r=>{ const k=r.repo+"|"+r.agent+"|"+(r.source||"")+"|"+categoryOf(r); (m.get(k)||m.set(k,{repo:r.repo,agent:r.agent,source:r.source,cat:categoryOf(r),rows:[]}).get(k)).rows.push(r); });
   const list=[...m.values()].map(o=>({...o,s:agg(o.rows)})).sort((x,y)=>(x.agent===y.agent?0:x.agent==="codebuddy"?-1:1)||(x.agent==="codebuddy"?y.s.credit-x.s.credit:y.s.ctx-x.s.ctx));
-  $("#repos").innerHTML = `<thead><tr><th>Repo</th><th>Agent</th><th class="n">รอบ</th><th class="n">Credit</th><th class="n">มูลค่า API</th><th class="n">Token</th><th class="n">Output</th><th class="n">เวลา</th></tr></thead><tbody>`+
-    list.map(o=>`<tr><td>${esc(o.repo)}</td><td style="white-space:nowrap">${agentCell(o.agent,{source:o.source})}</td><td class="n">${o.s.n}</td><td class="n">${o.agent==="codebuddy"?fmt(o.s.credit,2):"—"}</td><td class="n">${o.s.hasApi?"$"+fmt(o.s.api,2):"—"}</td><td class="n">${fM(o.s.ctx+o.s.out)}</td><td class="n">${fM(o.s.out)}</td><td class="n">${fmt(o.s.sec/60,0)} น.</td></tr>`).join("")+"</tbody>";
+  $("#repos").innerHTML = `<thead><tr><th>Repo</th><th>Agent</th><th>หมวด</th><th class="n">รอบ</th><th class="n">Credit</th><th class="n">มูลค่า API</th><th class="n">Token</th><th class="n">Output</th><th class="n">เวลา</th></tr></thead><tbody>`+
+    list.map(o=>`<tr><td>${esc(o.repo)}</td><td style="white-space:nowrap">${agentCell(o.agent,{source:o.source})}</td><td>${catPillById(o.cat)}</td><td class="n">${o.s.n}</td><td class="n">${o.agent==="codebuddy"?fmt(o.s.credit,2):"—"}</td><td class="n">${o.s.hasApi?"$"+fmt(o.s.api,2):"—"}</td><td class="n">${fM(o.s.ctx+o.s.out)}</td><td class="n">${fM(o.s.out)}</td><td class="n">${fmt(o.s.sec/60,0)} น.</td></tr>`).join("")+"</tbody>";
 }
 
 let topAgent = store.get("ac-top") || "codebuddy";
@@ -366,14 +439,15 @@ function renderTop(){
   document.querySelectorAll(".seg button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.a===topAgent)));
   const score = r => topAgent!=="codebuddy" ? (apiUsd(r) ?? tokAll(r)/1e9) : (r.credit||0);
   const rs=(topAgent==="codex"?CX:topAgent==="claude"?CL:CB).slice().sort((x,y)=>score(y)-score(x)).slice(0,12);
-  $("#top").innerHTML = `<thead><tr><th>เวลา</th><th>Repo</th><th>งานที่สั่ง</th><th>Model</th><th class="n">${topAgent!=="codebuddy"?"มูลค่า API":"Credit"}</th><th class="n">Token</th><th class="n">Tools</th><th class="n">เวลา</th></tr></thead><tbody>`+
-    rs.map(r=>`<tr><td class="mono" style="white-space:nowrap">${r.ts.slice(5,16).replace("T"," ")}</td><td>${esc(r.repo)}</td><td class="p">${esc(r.prompt||"—")}</td><td class="mono">${esc(r.model)}</td><td class="n">${costCell(r)}</td><td class="n">${fM(tokAll(r))}</td><td class="n">${r.n_tool_calls||0}</td><td class="n">${fmt((r.elapsed_sec||0)/60,1)} น.</td></tr>`).join("")+"</tbody>";
+  $("#top").innerHTML = `<thead><tr><th>เวลา</th><th>Repo</th><th>หมวด</th><th>งานที่สั่ง</th><th>Model</th><th class="n">${topAgent!=="codebuddy"?"มูลค่า API":"Credit"}</th><th class="n">Token</th><th class="n">Tools</th><th class="n">เวลา</th></tr></thead><tbody>`+
+    rs.map(r=>`<tr><td class="mono" style="white-space:nowrap">${r.ts.slice(5,16).replace("T"," ")}</td><td>${esc(r.repo)}</td><td>${catPill(r)}</td><td class="p">${esc(r.prompt||"—")}</td><td class="mono">${esc(r.model)}</td><td class="n">${costCell(r)}</td><td class="n">${fM(tokAll(r))}</td><td class="n">${r.n_tool_calls||0}</td><td class="n">${fmt((r.elapsed_sec||0)/60,1)} น.</td></tr>`).join("")+"</tbody>";
 }
 
 function filterRows(){
   if(spanDays==="custom"){
     ROWS=ALL.filter(r=>{ const d=r.ts.slice(0,10); return (!fromDay || d>=fromDay) && (!toDay || d<=toDay); });
   } else if(!spanDays){ ROWS=ALL; } else { const d=new Date(); d.setDate(d.getDate()-(spanDays-1)); const from=dayKey(d); ROWS=ALL.filter(r=>r.ts.slice(0,10)>=from); }
+  if(catFilter !== "all") ROWS = ROWS.filter(r => categoryOf(r) === catFilter);
   const isIde = r => r.source==="ide";
   CB=ROWS.filter(r=>r.agent==="codebuddy" && (cbSource==="all" || (cbSource==="ide")===isIde(r))); CL=ROWS.filter(r=>r.agent==="claude"); CX=ROWS.filter(r=>r.agent==="codex");
 }
@@ -381,7 +455,7 @@ function renderAll(){
   filterRows();
   const ds=ROWS.map(r=>r.ts).sort(); $("#range").textContent = ds.length ? ds[0].slice(0,10)+" → "+ds.at(-1).slice(0,10) : "ไม่มีข้อมูลในช่วงนี้";
   $("#f-plancx").hidden = !CX.length;
-  renderDuel(); renderVerdict(); renderCharts(); renderFindings(); renderLatest(); renderRepos(); renderTop();
+  renderDuel(); renderVerdict(); renderCharts(); renderCategories(); renderFindings(); renderLatest(); renderRepos(); renderTop();
 }
 
 // ---- live polling ----
@@ -427,6 +501,10 @@ function applyPlanDefault(){
   $("#fx").addEventListener("input",e=>{ const v=parseFloat(e.target.value); fxRate=v>0?v:null; store.set("ac-fx", fxRate?String(fxRate):""); renderAll(); });
   const cs=store.get("ac-cbsrc"); if(cs){ cbSource=cs; $("#cbsrc").value=cs; }
   $("#cbsrc").addEventListener("change",e=>{ cbSource=e.target.value; store.set("ac-cbsrc",cbSource); renderAll(); });
+  CATEGORIES.forEach(c=>{ if(c.id!=="other") $("#cat").add(new Option(c.label, c.id)); });
+  $("#cat").add(new Option("Other", "other"));
+  const cfs=store.get("ac-cat"); if(cfs && CAT[cfs]){ catFilter=cfs; $("#cat").value=cfs; }
+  $("#cat").addEventListener("change",e=>{ catFilter=e.target.value; store.set("ac-cat",catFilter); renderAll(); });
   const bs=store.get("ac-basis"); if(bs){ planBasis=bs; $("#basis").value=bs; }
   $("#basis").addEventListener("change",e=>{ planBasis=e.target.value; store.set("ac-basis",planBasis); renderAll(); });
   const sp=store.get("ac-span");
