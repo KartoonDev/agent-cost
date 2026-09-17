@@ -155,8 +155,12 @@ def records(index_path, seen, paths, names, prompts, since=None):
             continue
         msgs = [m for m in (load_msg(conv, mid) for mid in req.get("messages") or []) if m]
         users = [m for m in msgs if m["role"] == "user" and not m["extra"].get("isHelperMessage")]
-        tools, files = [], []
+        tools, files, tool_errors = [], [], 0
         for m in msgs:
+            if m["role"] == "tool":
+                # A failed tool call is stored as a result block with isError / status "error".
+                blob = json.dumps(m["content"], ensure_ascii=False, separators=(",", ":"))
+                tool_errors += blob.count('"isError":true') + blob.count('"status":"error"')
             if m["role"] != "assistant":
                 continue
             for b in blocks(m):
@@ -208,6 +212,10 @@ def records(index_path, seen, paths, names, prompts, since=None):
             "usage_v": USAGE_V,
             "elapsed_sec": elapsed if elapsed is None or elapsed >= 0 else None,
             "model": model,
+            "n_tool_errors": tool_errors,
+            # The IDE never stores the 5xx body, but a turn that starts by resuming is the
+            # retry after one — that is where re-sent context quietly costs again.
+            "resumed": bool(users and text_of(users[0]).strip().lower().startswith("please resume the unfinished")),
             "n_tool_calls": len(tools),
             "tools": sorted(set(tools)),
             "files_touched": sorted(set(files))[:40],

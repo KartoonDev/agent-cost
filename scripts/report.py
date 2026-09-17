@@ -17,6 +17,7 @@ from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cost_paths import ledger_dir
+import categories
 
 LEDGER_DIR = ledger_dir()
 LEDGER = os.path.join(LEDGER_DIR, "ledger.jsonl")
@@ -159,6 +160,60 @@ def real_cost_section(rows, pricing):
             "· ใส่ราคา credit ได้ที่ `_plans.codebuddy.usd_per_credit` ใน `pricing.json`", ""]
 
 
+def failed(r):
+    """A turn that hit an API/tool error, or is the retry after one."""
+    return bool((r.get("n_api_errors") or 0) or (r.get("n_tool_errors") or 0) or r.get("resumed"))
+
+
+def error_section(rows, pricing):
+    """What the failures cost. A 502/504 bills you: the gateway dies after the model has worked."""
+    bad = [r for r in rows if failed(r)]
+    if not bad:
+        return []
+    out = ["## รอบที่ error", "",
+           "| Agent | รอบที่ error | จากทั้งหมด | API error | tool error | resume ต่อ | Credit | Token |",
+           "|---|--:|--:|--:|--:|--:|--:|--:|"]
+    by = grouped(rows)
+    for ag in by:
+        grp = by[ag]
+        b = [r for r in grp if failed(r)]
+        if not b:
+            continue
+        a, ab = agg(grp, pricing), agg(b, pricing)
+        share = f"{len(b)/len(grp)*100:.0f}%" if grp else "—"
+        out.append(f"| **{ag}** | {len(b)} | {share} | {sum(r.get('n_api_errors') or 0 for r in b)} "
+                   f"| {sum(r.get('n_tool_errors') or 0 for r in b)} | {sum(1 for r in b if r.get('resumed'))} "
+                   f"| {round(ab['credit'],2) if ab['has_credit'] else '—'} | {fmt(ab['tok'])} |")
+    worst = sorted((r for r in bad if r.get("credit")), key=lambda r: -(r.get("credit") or 0))[:5]
+    if worst:
+        out += ["", "รอบที่ error แล้วเสีย credit มากสุด:", ""]
+        for r in worst:
+            why = r.get("error") or (f"tool error ×{r['n_tool_errors']}" if r.get("n_tool_errors") else "resume ต่อจากรอบที่ล่ม")
+            out.append(f"- `{(r.get('ts') or '')[:16].replace('T',' ')}` **{r['credit']:g} credit** · {r.get('repo','')} "
+                       f"— {' '.join(str(why).split())[:110]}")
+    return out + ["", "> 502/504 คือ gateway ล่มหลังโมเดลทำงานไปแล้ว — token ถูกคิดไปแล้ว และกด Retry = ส่ง context เดิมไปใหม่ทั้งก้อน "
+                  "· CodeBuddy IDE ไม่เก็บ body ของ 5xx ลงดิสก์ เลยเห็นทางอ้อมจากรอบ `resume` เท่านั้น", ""]
+
+
+def category_section(rows, pricing):
+    """Where the turns (and the money) went, by kind of work."""
+    if not rows:
+        return []
+    cat = categories.assign(rows)
+    by = defaultdict(list)
+    for r in rows:
+        by[cat.get(r.get("turn_key") or id(r), "other")].append(r)
+    out = ["## ใช้ไปกับงานแบบไหน", "",
+           "| หมวด | รอบ | % | Credit | USD ราคา API | Token |", "|---|--:|--:|--:|--:|--:|"]
+    for key in sorted(by, key=lambda k: -len(by[k])):
+        a = agg(by[key], pricing)
+        out.append(f"| {categories.LABELS.get(key, key)} | {a['turns']} | {a['turns']/len(rows)*100:.0f}% "
+                   f"| {round(a['credit'],2) if a['has_credit'] else '—'} "
+                   f"| {round(a['usd'],2) if a['has_usd'] else '—'} | {fmt(a['tok'])} |")
+    return out + ["", "> เดาจาก prompt + tool + นามสกุลไฟล์ (คร่าว ๆ) · รอบที่ prompt สั้นจนจับไม่ได้ "
+                  "ใช้หมวดของรอบก่อนหน้าใน session เดียวกัน · แก้คำที่ใช้จับได้ใน `scripts/categories.py`", ""]
+
+
 def ledger_files(args):
     """(path, owner) pairs to read.
 
@@ -252,15 +307,16 @@ def agg(rows, pricing):
 
 def summary_table(rows, pricing):
     by = grouped(rows)
-    out = ["| Agent | รอบ | Credit | Token รวม | Output tok | เวลารวม | เฉลี่ย/รอบ | Tool calls | USD ราคา API |",
-           "|---|--:|--:|--:|--:|--:|--:|--:|--:|"]
+    out = ["| Agent | รอบ | Credit | Token รวม | Output tok | เวลารวม | เฉลี่ย/รอบ | Tool calls | รอบที่ error | USD ราคา API |",
+           "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|"]
     for ag in by:
         a = agg(by[ag], pricing)
         avg = f"{a['sec']/a['turns']:.1f}s" if a["turns"] else "—"
         out.append(
             f"| **{ag}** | {a['turns']} | {round(a['credit'],2) if a['has_credit'] else '—'} "
             f"| {fmt(a['tok'])} | {fmt(a['out'])} | {a['sec']/60:.1f} นาที | {avg} "
-            f"| {fmt(a['tools'])} | {round(a['usd'],2) if a['has_usd'] else '—'} |"
+            f"| {fmt(a['tools'])} | {sum(1 for r in by[ag] if failed(r)) or '—'} "
+            f"| {round(a['usd'],2) if a['has_usd'] else '—'} |"
         )
     return "\n".join(out)
 
@@ -320,6 +376,8 @@ def main():
         md += ["> USD เป็น `—` เพราะยังไม่ได้ตั้งราคา — เติม `pricing.json` "
                "(`{\"claude-opus-5\": {\"input\": 0, \"output\": 0, \"cache_read\": 0}}` USD ต่อ 1M token) แล้วรันใหม่", ""]
     md += real_cost_section(rows, pricing)
+    md += category_section(rows, pricing)
+    md += error_section(rows, pricing)
 
     if args.compare:
         by = defaultdict(lambda: defaultdict(list))

@@ -170,6 +170,11 @@ echo "{\"session_id\":\"test\",\"transcript_path\":\"$T\",\"cwd\":\"$PWD\"}" \
   แถวที่ transcript หายไปแล้ว / กรอกมือ → แก้แค่นิยาม token ด้วยการคำนวณ
 - **`prompt`** ถ้าเป็น slash command จะย่อเหลือชื่อคำสั่ง (`/pr-review <args>`) เพราะ transcript เก็บ
   SKILL.md มาทั้งก้อน เอามาเป็น label ไม่ได้
+- **รอบที่ error ก็ถูกคิดเงิน** — 502/504 คือ gateway ล่ม *หลัง* โมเดลทำงานไปแล้ว token ถูกคิดไปแล้ว
+  เก็บไว้ใน `n_api_errors` + `error` (ข้อความ), `n_tool_errors` (tool call ที่ fail) และ `resumed`
+  (รอบ IDE ที่เริ่มด้วย "Please resume the unfinished tasks" = retry ต่อจากรอบที่ล่ม)
+  ⚠️ IDE ไม่เขียน body ของ 502 ลงดิสก์ (Request ID เห็นแค่บนจอ) → ดูทางอ้อมจากรอบ `resumed` เท่านั้น
+  · dashboard สรุปให้ว่า credit กี่ % หมดไปกับรอบพวกนี้
 - รอบที่ไม่มี output token และไม่มี credit → ข้าม ไม่เขียนลง ledger
 
 ## CodeBuddy IDE — อ่านตัวเลขยังไง

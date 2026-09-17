@@ -17,13 +17,15 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cost_paths import ledger_dir
 import ide_sync
+import categories
 from codex_capture import CodexCollector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(HERE, "dashboard.html")
 KEEP = ("turn_key", "agent", "session_id", "ts", "repo", "credit", "input_tokens", "output_tokens",
         "cache_read_tokens", "cache_write_tokens", "elapsed_sec", "model", "n_tool_calls",
-        "via", "n_subagents", "subagent_tokens", "source")
+        "via", "n_subagents", "subagent_tokens", "source",
+        "n_tool_errors", "n_api_errors", "error", "resumed")
 
 
 _ide = {"at": 0.0, "lock": threading.Lock()}
@@ -80,7 +82,7 @@ def snapshot():
             pricing = json.load(f)
     except Exception:
         pricing = {}
-    return {"ledger": ledger, "rows": rows, "pricing": pricing}
+    return {"ledger": ledger, "rows": rows, "pricing": pricing, "categories": categories.config()}
 
 
 class Handler(BaseHTTPRequestHandler):

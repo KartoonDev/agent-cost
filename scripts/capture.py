@@ -37,6 +37,10 @@ RECORD_PROMPTS = record_prompts(CFG)
 DEBUG = os.environ.get("AGENT_COST_DEBUG") == "1"
 USAGE_V = 2
 IDLE_GAP_SEC = 1800  # a silence longer than this inside a turn is waiting, not working
+# What a failed turn leaves behind: Claude writes a synthetic isApiErrorMessage, CodeBuddy CLI
+# writes an "aborted" reply plus an error-recovery reminder. Gateway 5xx look the same as any
+# other API error from here — the tokens were already spent either way.
+API_ERROR_RE = re.compile(r"^(API Error|aborted$|<html>|\s*<system-reminder data-role=\"error-recovery)", re.I)
 WORK_EVENTS = {"user", "assistant", "message", "reasoning", "function_call", "function_call_result"}
 
 
@@ -209,6 +213,7 @@ def collect(turn):
     # and repeats the same `message.usage` on each — summing blindly overcounts
     # by ~2-3x. Count each assistant message, and each tool_use block, once.
     seen_msgs, seen_credit, seen_tools = set(), set(), set()
+    tool_errors, api_errors = 0, []
 
     for k, ev in enumerate(turn):
         # Only work events set elapsed — queue-operation / attachment / system rows and
@@ -229,6 +234,21 @@ def collect(turn):
                 pass
 
         msg = ev.get("message") if isinstance(ev.get("message"), dict) else {}
+        text = prompt_text(ev) if is_user_message(ev) else ""
+        if ev.get("isApiErrorMessage") or (text and API_ERROR_RE.match(text)):
+            blocks = msg.get("content") if isinstance(msg.get("content"), list) else []
+            said = " ".join(b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text")
+            api_errors.append(" ".join((text or said or "error").split())[:160])
+        for blk in (msg.get("content") if isinstance(msg.get("content"), list) else []):
+            if isinstance(blk, dict):
+                if blk.get("type") == "tool_result" and blk.get("is_error"):
+                    tool_errors += 1
+                elif blk.get("type") == "text" and API_ERROR_RE.match(blk.get("text") or ""):
+                    api_errors.append(" ".join(blk["text"].split())[:160])
+        if ev.get("type") == "function_call_result":
+            res = ev.get("result")
+            if isinstance(res, dict) and (res.get("isError") or res.get("status") == "error"):
+                tool_errors += 1
         u = msg.get("usage") or {}
         msg_key = msg.get("id") or ev.get("id")
         if u and msg_key not in seen_msgs:
@@ -291,6 +311,8 @@ def collect(turn):
         "model": model,
         "tools": tools,
         "files": sorted(set(files)),
+        "tool_errors": tool_errors,
+        "api_errors": api_errors,
         "elapsed_sec": elapsed,
     }
 
@@ -410,6 +432,9 @@ def build_record(events, prompts, start, tpath, session_id, cwd, ts):
         "subagent_models": sorted(sub["models"]),
         "via": None,
         "parent_session": None,
+        "n_tool_errors": facts["tool_errors"],
+        "n_api_errors": len(facts["api_errors"]),
+        "error": facts["api_errors"][0] if facts["api_errors"] else None,
         "n_tool_calls": len(facts["tools"]),
         "tools": sorted(set(facts["tools"])),
         "files_touched": facts["files"][:40],

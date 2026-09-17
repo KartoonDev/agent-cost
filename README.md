@@ -1,5 +1,7 @@
 # agent-cost
 
+*English · [ไทย](README.th.md)*
+
 **Know what your coding agents actually cost you.**
 
 Every time Claude Code, CodeBuddy or Codex finishes a turn, agent-cost writes one line to a local
@@ -255,6 +257,11 @@ These rules are what make the numbers comparable — worth two minutes before yo
   not pure inference time.
 - **Flat plans are spread over days, never over tokens**: every calendar day in range, or only the
   days you used it when `days_per_month` is set. A plan does not get cheaper because you typed less.
+- **Failed turns still cost.** A 502/504 is the gateway dying *after* the model worked — the tokens
+  were already billed. Rows carry `n_api_errors` + `error`, `n_tool_errors`, and `resumed` (an IDE
+  turn that begins by resuming an unfinished one, i.e. the retry after a failure), and the dashboard
+  totals what share of your spend went to them. The IDE never writes the 5xx body to disk, so there
+  it is only visible through the resumed turn that follows.
 - **A turn with no output and no credit is skipped** — nothing happened.
 - **Nothing is estimated silently.** No guessed prices, no guessed credits; missing data shows as `—`.
 
